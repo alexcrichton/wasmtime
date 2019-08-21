@@ -10,7 +10,7 @@ repository = "https://github.com/CraneStation/wasmtime"
 edition = "2018"
 
 [dependencies]
-cranelift-codegen = { version = "0.38.0", features = ["enable-serde"] }
+cranelift-codegen = { version = "0.40.0", features = ["enable-serde"] }
 cranelift-native = "0.38.0"
 cranelift-entity = { version = "0.38.0", features = ["enable-serde"] }
 cranelift-wasm = { version = "0.38.0", features = ["enable-serde"] }
