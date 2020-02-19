@@ -13,7 +13,8 @@ use std::str;
 use wasm_webidl_bindings::ast;
 use wasmtime::Val;
 use wasmtime_environ::ir;
-use wasmtime_runtime::{Export, InstanceHandle};
+use wasmtime_environ::Export;
+use wasmtime_runtime::InstanceHandle;
 
 mod value;
 pub use value::Value;
@@ -163,11 +164,13 @@ impl ModuleData {
         if let Some(binding) = self.interface_binding_for_export(name) {
             return Ok(binding);
         }
-        let signature = match instance.lookup(name) {
-            Some(Export::Function(f)) => f.signature,
+        let module = instance.module();
+        let func = match module.exports.get(name) {
+            Some(Export::Function(f)) => *f,
             Some(_) => bail!("`{}` is not a function", name),
             None => bail!("failed to find export `{}`", name),
         };
+        let signature = module.local.signatures[module.local.functions[func]].clone();
         Ok(ExportBinding {
             kind: ExportBindingKind::Raw(signature),
         })

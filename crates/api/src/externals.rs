@@ -84,7 +84,7 @@ impl Extern {
     pub(crate) fn get_wasmtime_export(&self) -> wasmtime_runtime::Export {
         match self {
             Extern::Func(f) => f.wasmtime_function().clone().into(),
-            Extern::Global(g) => g.inner.wasmtime_export.clone().into(),
+            Extern::Global(g) => g.wasmtime_export.clone().into(),
             Extern::Memory(m) => m.wasmtime_export.clone().into(),
             Extern::Table(t) => t.wasmtime_export.clone().into(),
         }
@@ -192,7 +192,7 @@ impl Global {
     /// Returns the current [`Val`] of this global.
     pub fn get(&self) -> Val {
         unsafe {
-            let definition = &mut *self.inner.wasmtime_export.definition;
+            let definition = &mut *self.wasmtime_export.definition;
             match self.ty().content() {
                 ValType::I32 => Val::from(*definition.as_i32()),
                 ValType::I64 => Val::from(*definition.as_i64()),
@@ -221,7 +221,7 @@ impl Global {
             );
         }
         unsafe {
-            let definition = &mut *self.inner.wasmtime_export.definition;
+            let definition = &mut *self.wasmtime_export.definition;
             match val {
                 Val::I32(i) => *definition.as_i32_mut() = i,
                 Val::I64(i) => *definition.as_i64_mut() = i,
@@ -298,7 +298,7 @@ impl Table {
     ///
     /// Returns an error if `init` does not match the element type of the table.
     pub fn new(store: &Store, ty: TableType, init: Val) -> Result<Table> {
-        let item = into_checked_anyfunc(init, store)?;
+        let item = into_checked_anyfunc(init)?;
         let (wasmtime_handle, wasmtime_export) = generate_table_export(store, &ty)?;
 
         // Initialize entries with the init value.
@@ -346,7 +346,7 @@ impl Table {
     /// the right type to be stored in this table.
     pub fn set(&self, index: u32, val: Val) -> Result<()> {
         let table_index = self.wasmtime_table_index();
-        let item = into_checked_anyfunc(val, &self.store)?;
+        let item = into_checked_anyfunc(val)?;
         set_table_item(&self.wasmtime_handle, table_index, index, item)
     }
 
@@ -365,7 +365,7 @@ impl Table {
     /// error if `init` is not of the right type.
     pub fn grow(&self, delta: u32, init: Val) -> Result<u32> {
         let index = self.wasmtime_table_index();
-        let item = into_checked_anyfunc(init, &self.store)?;
+        let item = into_checked_anyfunc(init)?;
         if let Some(len) = self.wasmtime_handle.clone().table_grow(index, delta) {
             let mut wasmtime_handle = self.wasmtime_handle.clone();
             for i in 0..delta {
