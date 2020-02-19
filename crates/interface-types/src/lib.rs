@@ -164,7 +164,7 @@ impl ModuleData {
             return Ok(binding);
         }
         let signature = match instance.lookup(name) {
-            Some(Export::Function { signature, .. }) => signature,
+            Some(Export::Function(f)) => f.signature,
             Some(_) => bail!("`{}` is not a function", name),
             None => bail!("failed to find export `{}`", name),
         };
