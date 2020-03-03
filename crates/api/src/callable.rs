@@ -6,7 +6,7 @@ use crate::values::Val;
 use std::cmp::max;
 use std::ptr;
 use std::rc::Rc;
-use wasmtime_runtime::{InstanceHandle, ExportFunction, VMTrampoline};
+use wasmtime_runtime::{ExportFunction, InstanceHandle, VMTrampoline};
 
 /// A trait representing a function that can be imported and called from inside
 /// WebAssembly.
