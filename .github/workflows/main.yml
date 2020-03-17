@@ -11,14 +11,15 @@ jobs:
       fail-fast: false
       matrix:
         rust:
-        - nightly-2020-03-16
-        - nightly-2020-03-15
-        - nightly-2020-03-14
-        - nightly-2020-03-13
-        - nightly-2020-03-12
-        - nightly-2020-03-11
-        - nightly-2020-03-10
         - nightly-2020-03-09
+        - nightly-2020-03-08
+        - nightly-2020-03-07
+        - nightly-2020-03-06
+        - nightly-2020-03-05
+        - nightly-2020-03-04
+        - nightly-2020-03-03
+        - nightly-2020-03-02
+        - nightly-2020-03-01
     steps:
     - uses: actions/checkout@v1
       with:
