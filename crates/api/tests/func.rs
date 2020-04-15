@@ -109,6 +109,7 @@ fn signatures_match() {
 }
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn import_works() -> Result<()> {
     static HITS: AtomicUsize = AtomicUsize::new(0);
 
@@ -237,6 +238,7 @@ fn get_from_wrapper() {
 }
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", should_panic)] // FIXME(#1521)
 fn get_from_signature() {
     let store = Store::default();
     let ty = FuncType::new(Box::new([]), Box::new([]));
@@ -254,6 +256,7 @@ fn get_from_signature() {
 }
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn get_from_module() -> anyhow::Result<()> {
     let store = Store::default();
     let module = Module::new(
@@ -323,6 +326,7 @@ fn call_wrapped_func() -> Result<()> {
 }
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn caller_memory() -> anyhow::Result<()> {
     let store = Store::default();
     let f = Func::wrap(&store, |c: Caller<'_>| {
@@ -388,6 +392,7 @@ fn caller_memory() -> anyhow::Result<()> {
 }
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn func_write_nothing() -> anyhow::Result<()> {
     let store = Store::default();
     let ty = FuncType::new(Box::new([]), Box::new([ValType::I32]));

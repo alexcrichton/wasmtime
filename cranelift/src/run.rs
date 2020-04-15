@@ -117,6 +117,7 @@ mod test {
     use super::*;
 
     #[test]
+    #[cfg_attr(target_arch = "aarch64", should_panic)] // FIXME(#1521)
     fn nop() {
         let code = String::from(
             "

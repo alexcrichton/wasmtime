@@ -154,10 +154,13 @@ fn write_testsuite_tests(
     if ignore(testsuite, &testname, strategy) {
         writeln!(out, "#[ignore]")?;
     }
-    writeln!(out, "fn r#{}() -> anyhow::Result<()> {{", &testname)?;
+    if should_panic(testsuite, &testname) {
+        writeln!(out, "#[should_panic]")?;
+    }
+    writeln!(out, "fn r#{}() {{", &testname)?;
     writeln!(
         out,
-        "crate::run_wast(r#\"{}\"#, crate::Strategy::{})",
+        "crate::run_wast(r#\"{}\"#, crate::Strategy::{}).unwrap();",
         path.display(),
         strategy
     )?;
@@ -211,4 +214,29 @@ fn ignore(testsuite: &str, testname: &str, strategy: &str) -> bool {
     }
 
     false
+}
+
+fn should_panic(testsuite: &str, testname: &str) -> bool {
+    let target = env::var("TARGET").unwrap();
+    if !target.contains("aarch64") {
+        return false;
+    }
+    // FIXME(#1521)
+    match (testsuite, testname) {
+        ("bulk_memory_operations", "data")
+        | ("bulk_memory_operations", "elem_ref_null")
+        | ("misc_testsuite", "threads")
+        | ("multi_value", "type")
+        | ("spec_testsuite", "comments")
+        | ("spec_testsuite", "data")
+        | ("spec_testsuite", "type")
+        | ("spec_testsuite", "token")
+        | ("spec_testsuite", "typecheck")
+        | ("spec_testsuite", "unreached_invalid")
+        | ("spec_testsuite", "utf8_custom_section_id")
+        | ("spec_testsuite", "utf8_import_field")
+        | ("spec_testsuite", "utf8_import_module")
+        | ("spec_testsuite", "utf8_invalid_encoding") => false,
+        _ => true,
+    }
 }

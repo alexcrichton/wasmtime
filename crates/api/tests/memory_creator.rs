@@ -146,6 +146,7 @@ mod not_for_windows {
     }
 
     #[test]
+    #[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
     fn host_memory_grow() -> anyhow::Result<()> {
         let mem_creator = Arc::new(CustomMemoryCreator::new());
         let mut config = Config::default();

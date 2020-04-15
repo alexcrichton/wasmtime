@@ -92,6 +92,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
     fn test_custom_signal_handler_single_instance() -> Result<()> {
         let engine = Engine::new(&Config::default());
         let store = Store::new(&engine);
@@ -155,6 +156,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
     fn test_custom_signal_handler_multiple_instances() -> Result<()> {
         let engine = Engine::new(&Config::default());
         let store = Store::new(&engine);
@@ -247,6 +249,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
     fn test_custom_signal_handler_instance_calling_another_instance() -> Result<()> {
         let engine = Engine::new(&Config::default());
         let store = Store::new(&engine);

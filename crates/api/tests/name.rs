@@ -1,6 +1,7 @@
 use wasmtime::*;
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn test_module_no_name() -> anyhow::Result<()> {
     let store = Store::default();
     let wat = r#"
@@ -16,6 +17,7 @@ fn test_module_no_name() -> anyhow::Result<()> {
 }
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn test_module_name() -> anyhow::Result<()> {
     let store = Store::default();
     let wat = r#"

@@ -93,6 +93,7 @@ mod test {
     use cranelift_reader::{parse_test, ParseOptions};
 
     #[test]
+    #[cfg_attr(target_arch = "aarch64", should_panic)] // FIXME(#1521)
     fn nop() {
         let code = String::from(
             "

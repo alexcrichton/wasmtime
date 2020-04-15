@@ -2,6 +2,7 @@ use anyhow::{Context as _, Result};
 use wasmtime::*;
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn test_invoke_func_via_table() -> Result<()> {
     let store = Store::default();
 

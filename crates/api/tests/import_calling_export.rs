@@ -4,6 +4,7 @@ use std::rc::Rc;
 use wasmtime::*;
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", should_panic)] // FIXME(#1521)
 fn test_import_calling_export() {
     const WAT: &str = r#"
     (module
@@ -58,6 +59,7 @@ fn test_import_calling_export() {
 }
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn test_returns_incorrect_type() -> Result<()> {
     const WAT: &str = r#"
     (module

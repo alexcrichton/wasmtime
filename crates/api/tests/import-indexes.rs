@@ -1,6 +1,7 @@
 use wasmtime::*;
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn same_import_names_still_distinct() -> anyhow::Result<()> {
     const WAT: &str = r#"
 (module

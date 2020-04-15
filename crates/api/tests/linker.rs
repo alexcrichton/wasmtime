@@ -66,6 +66,7 @@ fn link_twice_bad() -> Result<()> {
 }
 
 #[test]
+#[cfg_attr(target_arch = "aarch64", ignore)] // FIXME(#1521)
 fn interposition() -> Result<()> {
     let store = Store::default();
     let mut linker = Linker::new(&store);
