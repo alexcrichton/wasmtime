@@ -1,4 +1,5 @@
 //! The WASI embedding API definitions for Wasmtime.
+use crate::store::Thread;
 use crate::{wasm_extern_t, wasm_importtype_t, wasm_store_t, wasm_trap_t, ExternHost};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -264,6 +265,7 @@ fn create_preview1_instance(store: &Store, config: wasi_config_t) -> Result<Wasi
 pub struct wasi_instance_t {
     wasi: WasiInstance,
     export_cache: HashMap<String, Box<wasm_extern_t>>,
+    thread: Thread,
 }
 
 impl wasi_instance_t {
@@ -277,12 +279,13 @@ impl wasi_instance_t {
 
 #[no_mangle]
 pub unsafe extern "C" fn wasi_instance_new(
-    store: &wasm_store_t,
+    store_raw: &wasm_store_t,
     name: *const c_char,
     config: Box<wasi_config_t>,
     trap: &mut *mut wasm_trap_t,
 ) -> Option<Box<wasi_instance_t>> {
-    let store = &store.store.borrow();
+    let _claim = store_raw.thread.claim();
+    let store = &store_raw.store.borrow();
 
     let result = match CStr::from_ptr(name).to_str().unwrap_or("") {
         "wasi_snapshot_preview1" => create_preview1_instance(store, *config),
@@ -294,6 +297,7 @@ pub unsafe extern "C" fn wasi_instance_new(
         Ok(wasi) => Some(Box::new(wasi_instance_t {
             wasi,
             export_cache: HashMap::new(),
+            thread: store_raw.thread.clone(),
         })),
         Err(e) => {
             *trap = Box::into_raw(Box::new(wasm_trap_t {
@@ -306,13 +310,16 @@ pub unsafe extern "C" fn wasi_instance_new(
 }
 
 #[no_mangle]
-pub extern "C" fn wasi_instance_delete(_instance: Box<wasi_instance_t>) {}
+pub extern "C" fn wasi_instance_delete(instance: Box<wasi_instance_t>) {
+    let _claim = instance.thread.claim();
+}
 
 #[no_mangle]
 pub extern "C" fn wasi_instance_bind_import<'a>(
     instance: &'a mut wasi_instance_t,
     import: &wasm_importtype_t,
 ) -> Option<&'a wasm_extern_t> {
+    let _thread = instance.thread.claim();
     let module = &import.module;
     let name = str::from_utf8(import.name.as_bytes()).ok()?;
 
@@ -336,12 +343,14 @@ pub extern "C" fn wasi_instance_bind_import<'a>(
         return None;
     }
 
+    let thread = &instance.thread;
     let entry = instance
         .export_cache
         .entry(name.to_string())
         .or_insert_with(|| {
             Box::new(wasm_extern_t {
                 which: ExternHost::Func(HostRef::new(export.clone())),
+                thread: thread.clone(),
             })
         });
     Some(entry)

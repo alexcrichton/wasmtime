@@ -1,3 +1,4 @@
+use crate::store::Thread;
 use crate::wasm_externkind_t;
 use crate::{wasm_externtype_t, wasm_func_t, wasm_global_t, wasm_memory_t, wasm_table_t};
 use wasmtime::{ExternType, Func, Global, HostRef, Memory, Table};
@@ -5,6 +6,7 @@ use wasmtime::{ExternType, Func, Global, HostRef, Memory, Table};
 #[derive(Clone)]
 pub struct wasm_extern_t {
     pub(crate) which: ExternHost,
+    pub(crate) thread: Thread,
 }
 
 wasmtime_c_api_macros::declare_ref!(wasm_extern_t);

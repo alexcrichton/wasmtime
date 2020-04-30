@@ -37,6 +37,7 @@ pub extern "C" fn wasm_global_new(
     gt: &wasm_globaltype_t,
     val: &wasm_val_t,
 ) -> Option<Box<wasm_global_t>> {
+    let _claim = store.thread.claim();
     let mut global = ptr::null_mut();
     match wasmtime_global_new(store, gt, val, &mut global) {
         Some(_err) => None,
@@ -54,11 +55,13 @@ pub extern "C" fn wasmtime_global_new(
     val: &wasm_val_t,
     ret: &mut *mut wasm_global_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = store.thread.claim();
     let global = Global::new(&store.store.borrow(), gt.ty().ty.clone(), val.val());
     handle_result(global, |global| {
         *ret = Box::into_raw(Box::new(wasm_global_t {
             ext: wasm_extern_t {
                 which: ExternHost::Global(HostRef::new(global)),
+                thread: store.thread.clone(),
             },
         }));
     })
@@ -66,22 +69,26 @@ pub extern "C" fn wasmtime_global_new(
 
 #[no_mangle]
 pub extern "C" fn wasm_global_as_extern(g: &wasm_global_t) -> &wasm_extern_t {
+    let _claim = g.ext.thread.claim();
     &g.ext
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_global_type(g: &wasm_global_t) -> Box<wasm_globaltype_t> {
+    let _claim = g.ext.thread.claim();
     let globaltype = g.global().borrow().ty();
     Box::new(wasm_globaltype_t::new(globaltype))
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_global_get(g: &wasm_global_t, out: &mut wasm_val_t) {
+    let _claim = g.ext.thread.claim();
     out.set(g.global().borrow().get());
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_global_set(g: &wasm_global_t, val: &wasm_val_t) {
+    let _claim = g.ext.thread.claim();
     let result = g.global().borrow().set(val.val());
     // FIXME(WebAssembly/wasm-c-api#131) should communicate the error here
     drop(result);
@@ -92,5 +99,6 @@ pub extern "C" fn wasmtime_global_set(
     g: &wasm_global_t,
     val: &wasm_val_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = g.ext.thread.claim();
     handle_result(g.global().borrow().set(val.val()), |()| {})
 }

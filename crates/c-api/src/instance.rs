@@ -1,3 +1,4 @@
+use super::store::Thread;
 use crate::{wasm_extern_t, wasm_extern_vec_t, wasm_module_t, wasm_trap_t};
 use crate::{wasm_store_t, wasmtime_error_t, ExternHost};
 use anyhow::Result;
@@ -10,15 +11,17 @@ use wasmtime::{Extern, HostRef, Instance, Store, Trap};
 pub struct wasm_instance_t {
     pub(crate) instance: HostRef<Instance>,
     exports_cache: RefCell<Option<Vec<ExternHost>>>,
+    thread: Thread,
 }
 
 wasmtime_c_api_macros::declare_ref!(wasm_instance_t);
 
 impl wasm_instance_t {
-    pub(crate) fn new(instance: Instance) -> wasm_instance_t {
+    pub(crate) fn new(thread: &Thread, instance: Instance) -> wasm_instance_t {
         wasm_instance_t {
             instance: HostRef::new(instance),
             exports_cache: RefCell::new(None),
+            thread: thread.clone(),
         }
     }
 
@@ -34,6 +37,7 @@ pub unsafe extern "C" fn wasm_instance_new(
     imports: *const Box<wasm_extern_t>,
     result: Option<&mut *mut wasm_trap_t>,
 ) -> Option<Box<wasm_instance_t>> {
+    let _claim = store.thread.claim();
     let store = &store.store.borrow();
     let module = &wasm_module.module.borrow();
     if !Store::same(&store, module.store()) {
@@ -96,7 +100,7 @@ pub unsafe extern "C" fn wasmtime_instance_new(
 }
 
 fn _wasmtime_instance_new(
-    module: &wasm_module_t,
+    module_raw: &wasm_module_t,
     imports: &[Box<wasm_extern_t>],
     instance_ptr: &mut *mut wasm_instance_t,
     trap_ptr: &mut *mut wasm_trap_t,
@@ -110,11 +114,17 @@ fn _wasmtime_instance_new(
             ExternHost::Memory(e) => Extern::Memory(e.borrow().clone()),
         })
         .collect::<Vec<_>>();
-    let module = &module.module.borrow();
-    handle_instantiate(Instance::new(module, &imports), instance_ptr, trap_ptr)
+    let module = &module_raw.module.borrow();
+    handle_instantiate(
+        &module_raw.thread,
+        Instance::new(module, &imports),
+        instance_ptr,
+        trap_ptr,
+    )
 }
 
-pub fn handle_instantiate(
+pub(crate) fn handle_instantiate(
+    thread: &Thread,
     instance: Result<Instance>,
     instance_ptr: &mut *mut wasm_instance_t,
     trap_ptr: &mut *mut wasm_trap_t,
@@ -125,7 +135,7 @@ pub fn handle_instantiate(
 
     match instance {
         Ok(instance) => {
-            write(instance_ptr, wasm_instance_t::new(instance));
+            write(instance_ptr, wasm_instance_t::new(thread, instance));
             None
         }
         Err(e) => match e.downcast::<Trap>() {
@@ -140,6 +150,7 @@ pub fn handle_instantiate(
 
 #[no_mangle]
 pub extern "C" fn wasm_instance_exports(instance: &wasm_instance_t, out: &mut wasm_extern_vec_t) {
+    let _claim = instance.thread.claim();
     let mut cache = instance.exports_cache.borrow_mut();
     let exports = cache.get_or_insert_with(|| {
         let instance = &instance.instance.borrow();
@@ -155,7 +166,10 @@ pub extern "C" fn wasm_instance_exports(instance: &wasm_instance_t, out: &mut wa
     });
     let mut buffer = Vec::with_capacity(exports.len());
     for e in exports {
-        let ext = Box::new(wasm_extern_t { which: e.clone() });
+        let ext = Box::new(wasm_extern_t {
+            which: e.clone(),
+            thread: instance.thread.clone(),
+        });
         buffer.push(Some(ext));
     }
     out.set_buffer(buffer);

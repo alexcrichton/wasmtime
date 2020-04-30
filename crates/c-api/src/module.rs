@@ -1,3 +1,4 @@
+use crate::store::Thread;
 use crate::{handle_result, wasmtime_error_t};
 use crate::{wasm_byte_vec_t, wasm_exporttype_vec_t, wasm_importtype_vec_t};
 use crate::{wasm_exporttype_t, wasm_importtype_t, wasm_store_t};
@@ -10,6 +11,7 @@ pub struct wasm_module_t {
     pub(crate) module: HostRef<Module>,
     pub(crate) imports: Vec<wasm_importtype_t>,
     pub(crate) exports: Vec<wasm_exporttype_t>,
+    pub(crate) thread: Thread,
 }
 
 wasmtime_c_api_macros::declare_ref!(wasm_module_t);
@@ -37,12 +39,13 @@ pub extern "C" fn wasm_module_new(
 
 #[no_mangle]
 pub extern "C" fn wasmtime_module_new(
-    store: &wasm_store_t,
+    store_raw: &wasm_store_t,
     binary: &wasm_byte_vec_t,
     ret: &mut *mut wasm_module_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = store_raw.thread.claim();
     let binary = binary.as_slice();
-    let store = &store.store.borrow();
+    let store = &store_raw.store.borrow();
     handle_result(Module::from_binary(store, binary), |module| {
         let imports = module
             .imports()
@@ -56,6 +59,7 @@ pub extern "C" fn wasmtime_module_new(
             module: HostRef::new(module),
             imports,
             exports,
+            thread: store_raw.thread.clone(),
         });
         *ret = Box::into_raw(module);
     })
@@ -63,6 +67,7 @@ pub extern "C" fn wasmtime_module_new(
 
 #[no_mangle]
 pub extern "C" fn wasm_module_validate(store: &wasm_store_t, binary: &wasm_byte_vec_t) -> bool {
+    let _claim = store.thread.claim();
     wasmtime_module_validate(store, binary).is_none()
 }
 
@@ -71,6 +76,7 @@ pub extern "C" fn wasmtime_module_validate(
     store: &wasm_store_t,
     binary: &wasm_byte_vec_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = store.thread.claim();
     let binary = binary.as_slice();
     let store = &store.store.borrow();
     handle_result(Module::validate(store, binary), |()| {})
@@ -78,6 +84,7 @@ pub extern "C" fn wasmtime_module_validate(
 
 #[no_mangle]
 pub extern "C" fn wasm_module_exports(module: &wasm_module_t, out: &mut wasm_exporttype_vec_t) {
+    let _claim = module.thread.claim();
     let buffer = module
         .exports
         .iter()
@@ -88,6 +95,7 @@ pub extern "C" fn wasm_module_exports(module: &wasm_module_t, out: &mut wasm_exp
 
 #[no_mangle]
 pub extern "C" fn wasm_module_imports(module: &wasm_module_t, out: &mut wasm_importtype_vec_t) {
+    let _claim = module.thread.claim();
     let buffer = module
         .imports
         .iter()

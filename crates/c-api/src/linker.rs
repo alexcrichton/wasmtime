@@ -1,3 +1,4 @@
+use crate::store::Thread;
 use crate::{bad_utf8, handle_result, wasmtime_error_t};
 use crate::{wasm_extern_t, wasm_store_t, ExternHost};
 use crate::{wasm_instance_t, wasm_module_t, wasm_name_t, wasm_trap_t};
@@ -7,12 +8,15 @@ use wasmtime::{Extern, Linker};
 #[repr(C)]
 pub struct wasmtime_linker_t {
     linker: Linker,
+    thread: Thread,
 }
 
 #[no_mangle]
 pub extern "C" fn wasmtime_linker_new(store: &wasm_store_t) -> Box<wasmtime_linker_t> {
+    let _claim = store.thread.claim();
     Box::new(wasmtime_linker_t {
         linker: Linker::new(&store.store.borrow()),
+        thread: store.thread.clone(),
     })
 }
 
@@ -21,11 +25,14 @@ pub extern "C" fn wasmtime_linker_allow_shadowing(
     linker: &mut wasmtime_linker_t,
     allow_shadowing: bool,
 ) {
+    let _claim = linker.thread.claim();
     linker.linker.allow_shadowing(allow_shadowing);
 }
 
 #[no_mangle]
-pub extern "C" fn wasmtime_linker_delete(_linker: Box<wasmtime_linker_t>) {}
+pub extern "C" fn wasmtime_linker_delete(linker: Box<wasmtime_linker_t>) {
+    let _claim = linker.thread.claim();
+}
 
 #[no_mangle]
 pub extern "C" fn wasmtime_linker_define(
@@ -34,6 +41,7 @@ pub extern "C" fn wasmtime_linker_define(
     name: &wasm_name_t,
     item: &wasm_extern_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = linker.thread.claim();
     let linker = &mut linker.linker;
     let module = match str::from_utf8(module.as_slice()) {
         Ok(s) => s,
@@ -58,6 +66,7 @@ pub extern "C" fn wasmtime_linker_define_wasi(
     linker: &mut wasmtime_linker_t,
     instance: &crate::wasi_instance_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = linker.thread.claim();
     let linker = &mut linker.linker;
     handle_result(instance.add_to_linker(linker), |_linker| ())
 }
@@ -68,6 +77,7 @@ pub extern "C" fn wasmtime_linker_define_instance(
     name: &wasm_name_t,
     instance: &wasm_instance_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = linker.thread.claim();
     let linker = &mut linker.linker;
     let name = match str::from_utf8(name.as_slice()) {
         Ok(s) => s,
@@ -86,6 +96,7 @@ pub unsafe extern "C" fn wasmtime_linker_instantiate(
     instance_ptr: &mut *mut wasm_instance_t,
     trap_ptr: &mut *mut wasm_trap_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = linker.thread.claim();
     let result = linker.linker.instantiate(&module.module.borrow());
-    super::instance::handle_instantiate(result, instance_ptr, trap_ptr)
+    super::instance::handle_instantiate(&linker.thread, result, instance_ptr, trap_ptr)
 }

@@ -1,3 +1,4 @@
+use crate::store::Thread;
 use crate::{wasm_extern_t, wasm_functype_t, wasm_store_t, wasm_val_t};
 use crate::{wasm_name_t, wasm_trap_t, wasmtime_error_t, ExternHost};
 use anyhow::anyhow;
@@ -76,11 +77,12 @@ impl wasm_func_t {
 }
 
 fn create_function(
-    store: &wasm_store_t,
+    store_raw: &wasm_store_t,
     ty: &wasm_functype_t,
     func: impl Fn(Caller<'_>, *const wasm_val_t, *mut wasm_val_t) -> Option<Box<wasm_trap_t>> + 'static,
 ) -> Box<wasm_func_t> {
-    let store = &store.store.borrow();
+    let _claim = store_raw.thread.claim();
+    let store = &store_raw.store.borrow();
     let ty = ty.ty().ty.clone();
     let func = Func::new(store, ty, move |caller, params, results| {
         let params = params
@@ -100,6 +102,7 @@ fn create_function(
     Box::new(wasm_func_t {
         ext: wasm_extern_t {
             which: ExternHost::Func(HostRef::new(func)),
+            thread: store_raw.thread.clone(),
         },
     })
 }
@@ -110,6 +113,7 @@ pub extern "C" fn wasm_func_new(
     ty: &wasm_functype_t,
     callback: wasm_func_callback_t,
 ) -> Box<wasm_func_t> {
+    let _claim = store.thread.claim();
     create_function(store, ty, move |_caller, params, results| {
         callback(params, results)
     })
@@ -121,6 +125,7 @@ pub unsafe extern "C" fn wasmtime_func_new(
     ty: &wasm_functype_t,
     callback: wasmtime_func_callback_t,
 ) -> Box<wasm_func_t> {
+    let _claim = store.thread.claim();
     create_function(store, ty, move |caller, params, results| {
         callback(&wasmtime_caller_t { caller }, params, results)
     })
@@ -134,6 +139,7 @@ pub extern "C" fn wasm_func_new_with_env(
     env: *mut c_void,
     finalizer: Option<extern "C" fn(arg1: *mut std::ffi::c_void)>,
 ) -> Box<wasm_func_t> {
+    let _claim = store.thread.claim();
     let finalizer = Finalizer { env, finalizer };
     create_function(store, ty, move |_caller, params, results| {
         callback(finalizer.env, params, results)
@@ -148,6 +154,7 @@ pub extern "C" fn wasmtime_func_new_with_env(
     env: *mut c_void,
     finalizer: Option<extern "C" fn(*mut c_void)>,
 ) -> Box<wasm_func_t> {
+    let _claim = store.thread.claim();
     let finalizer = Finalizer { env, finalizer };
     create_function(store, ty, move |caller, params, results| {
         callback(
@@ -165,6 +172,7 @@ pub unsafe extern "C" fn wasm_func_call(
     args: *const wasm_val_t,
     results: *mut wasm_val_t,
 ) -> *mut wasm_trap_t {
+    let _claim = wasm_func.ext.thread.claim();
     let func = wasm_func.func().borrow();
     let mut trap = ptr::null_mut();
     let error = wasmtime_func_call(
@@ -190,6 +198,7 @@ pub unsafe extern "C" fn wasmtime_func_call(
     num_results: usize,
     trap_ptr: &mut *mut wasm_trap_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = func.ext.thread.claim();
     _wasmtime_func_call(
         func,
         std::slice::from_raw_parts(args, num_args),
@@ -204,6 +213,7 @@ fn _wasmtime_func_call(
     results: &mut [wasm_val_t],
     trap_ptr: &mut *mut wasm_trap_t,
 ) -> Option<Box<wasmtime_error_t>> {
+    let _claim = func.ext.thread.claim();
     let func = func.func().borrow();
     if results.len() != func.result_arity() {
         return Some(Box::new(anyhow!("wrong number of results provided").into()));
@@ -246,21 +256,25 @@ fn _wasmtime_func_call(
 
 #[no_mangle]
 pub extern "C" fn wasm_func_type(f: &wasm_func_t) -> Box<wasm_functype_t> {
+    let _claim = f.ext.thread.claim();
     Box::new(wasm_functype_t::new(f.func().borrow().ty()))
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_func_param_arity(f: &wasm_func_t) -> usize {
+    let _claim = f.ext.thread.claim();
     f.func().borrow().param_arity()
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_func_result_arity(f: &wasm_func_t) -> usize {
+    let _claim = f.ext.thread.claim();
     f.func().borrow().result_arity()
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_func_as_extern(f: &mut wasm_func_t) -> &mut wasm_extern_t {
+    drop(f.ext.thread.claim());
     &mut (*f).ext
 }
 
@@ -277,5 +291,8 @@ pub unsafe extern "C" fn wasmtime_caller_export_get(
         Extern::Memory(m) => ExternHost::Memory(HostRef::new(m)),
         Extern::Table(t) => ExternHost::Table(HostRef::new(t)),
     };
-    Some(Box::new(wasm_extern_t { which }))
+    Some(Box::new(wasm_extern_t {
+        which,
+        thread: Thread::default(),
+    }))
 }

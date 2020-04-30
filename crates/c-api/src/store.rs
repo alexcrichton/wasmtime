@@ -1,10 +1,43 @@
 use crate::wasm_engine_t;
+use std::sync::{Arc, Mutex};
+use std::thread::{self, ThreadId};
 use wasmtime::{HostRef, InterruptHandle, Store};
 
 #[repr(C)]
 #[derive(Clone)]
 pub struct wasm_store_t {
     pub(crate) store: HostRef<Store>,
+    pub(crate) thread: Thread,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct Thread {
+    current: Arc<Mutex<(usize, Option<ThreadId>)>>,
+}
+
+impl Thread {
+    pub(crate) fn claim(&self) -> impl Drop + '_ {
+        let mut current = self.current.lock().unwrap();
+        let id = thread::current().id();
+        match current.1 {
+            Some(prev) => assert_eq!(id, prev),
+            None => current.1 = Some(id),
+        }
+        current.0 += 1;
+        return Unref(&self.current);
+
+        struct Unref<'a>(&'a Mutex<(usize, Option<ThreadId>)>);
+
+        impl Drop for Unref<'_> {
+            fn drop(&mut self) {
+                let mut slot = self.0.lock().unwrap();
+                slot.0 -= 1;
+                if slot.0 == 0 {
+                    slot.1 = None;
+                }
+            }
+        }
+    }
 }
 
 wasmtime_c_api_macros::declare_own!(wasm_store_t);
@@ -14,6 +47,9 @@ pub extern "C" fn wasm_store_new(engine: &wasm_engine_t) -> Box<wasm_store_t> {
     let engine = &engine.engine;
     Box::new(wasm_store_t {
         store: HostRef::new(Store::new(&engine.borrow())),
+        thread: Thread {
+            current: Default::default(),
+        },
     })
 }
 
@@ -28,6 +64,7 @@ wasmtime_c_api_macros::declare_own!(wasmtime_interrupt_handle_t);
 pub extern "C" fn wasmtime_interrupt_handle_new(
     store: &wasm_store_t,
 ) -> Option<Box<wasmtime_interrupt_handle_t>> {
+    let _claim = store.thread.claim();
     Some(Box::new(wasmtime_interrupt_handle_t {
         handle: store.store.borrow().interrupt_handle().ok()?,
     }))

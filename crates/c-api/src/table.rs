@@ -39,6 +39,7 @@ pub unsafe extern "C" fn wasm_table_new(
     tt: &wasm_tabletype_t,
     init: *mut wasm_ref_t,
 ) -> Option<Box<wasm_table_t>> {
+    let _claim = store.thread.claim();
     let init: Val = if !init.is_null() {
         Box::from_raw(init).r.into()
     } else {
@@ -48,12 +49,14 @@ pub unsafe extern "C" fn wasm_table_new(
     Some(Box::new(wasm_table_t {
         ext: wasm_extern_t {
             which: ExternHost::Table(HostRef::new(table)),
+            thread: store.thread.clone(),
         },
     }))
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_table_type(t: &wasm_table_t) -> Box<wasm_tabletype_t> {
+    let _claim = t.ext.thread.claim();
     let ty = t.table().borrow().ty();
     Box::new(wasm_tabletype_t::new(ty))
 }
@@ -63,6 +66,7 @@ pub unsafe extern "C" fn wasm_table_get(
     t: &wasm_table_t,
     index: wasm_table_size_t,
 ) -> *mut wasm_ref_t {
+    let _claim = t.ext.thread.claim();
     match t.table().borrow().get(index) {
         Some(val) => into_funcref(val),
         None => into_funcref(Val::AnyRef(AnyRef::Null)),
@@ -75,6 +79,7 @@ pub unsafe extern "C" fn wasm_table_set(
     index: wasm_table_size_t,
     r: *mut wasm_ref_t,
 ) -> bool {
+    let _claim = t.ext.thread.claim();
     let val = from_funcref(r);
     t.table().borrow().set(index, val).is_ok()
 }
@@ -101,6 +106,7 @@ unsafe fn from_funcref(r: *mut wasm_ref_t) -> Val {
 
 #[no_mangle]
 pub extern "C" fn wasm_table_size(t: &wasm_table_t) -> wasm_table_size_t {
+    let _claim = t.ext.thread.claim();
     t.table().borrow().size()
 }
 
@@ -110,11 +116,13 @@ pub unsafe extern "C" fn wasm_table_grow(
     delta: wasm_table_size_t,
     init: *mut wasm_ref_t,
 ) -> bool {
+    let _claim = t.ext.thread.claim();
     let init = from_funcref(init);
     t.table().borrow().grow(delta, init).is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_table_as_extern(t: &wasm_table_t) -> &wasm_extern_t {
+    let _claim = t.ext.thread.claim();
     &t.ext
 }
