@@ -29,6 +29,10 @@ impl wasm_global_t {
     fn anyref(&self) -> wasmtime::AnyRef {
         self.global().anyref()
     }
+
+    fn thread(&self) -> &crate::store::Thread {
+        &self.ext.thread
+    }
 }
 
 #[no_mangle]

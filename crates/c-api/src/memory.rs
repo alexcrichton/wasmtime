@@ -29,6 +29,10 @@ impl wasm_memory_t {
     fn anyref(&self) -> wasmtime::AnyRef {
         self.memory().anyref()
     }
+
+    fn thread(&self) -> &crate::store::Thread {
+        &self.ext.thread
+    }
 }
 
 #[no_mangle]

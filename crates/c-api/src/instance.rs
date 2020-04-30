@@ -28,6 +28,10 @@ impl wasm_instance_t {
     fn anyref(&self) -> wasmtime::AnyRef {
         self.instance.anyref()
     }
+
+    fn thread(&self) -> &crate::store::Thread {
+        &self.thread
+    }
 }
 
 #[no_mangle]

@@ -61,9 +61,15 @@ pub fn declare_ref(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let set_host_info_final = quote::format_ident!("{}_set_host_info_with_finalizer", prefix);
     let as_ref = quote::format_ident!("{}_as_ref", prefix);
     let as_ref_const = quote::format_ident!("{}_as_ref_const", prefix);
+    let delete = quote::format_ident!("{}_delete", &name[..name.len() - 2]);
 
     (quote! {
-        wasmtime_c_api_macros::declare_own!(#ty);
+        //wasmtime_c_api_macros::declare_own!(#ty);
+        #[no_mangle]
+        pub extern fn #delete(p: Box<#ty>) {
+            let t = p.thread();
+            let _p = t.claim();
+        }
 
         #[no_mangle]
         pub extern fn #copy(src: &#ty) -> Box<#ty> {

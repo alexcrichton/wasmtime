@@ -74,6 +74,10 @@ impl wasm_func_t {
     fn anyref(&self) -> wasmtime::AnyRef {
         self.func().anyref()
     }
+
+    fn thread(&self) -> &crate::store::Thread {
+        &self.ext.thread
+    }
 }
 
 fn create_function(

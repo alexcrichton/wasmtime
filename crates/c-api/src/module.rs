@@ -20,6 +20,10 @@ impl wasm_module_t {
     fn anyref(&self) -> wasmtime::AnyRef {
         self.module.anyref()
     }
+
+    fn thread(&self) -> &crate::store::Thread {
+        &self.thread
+    }
 }
 
 #[no_mangle]

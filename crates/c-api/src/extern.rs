@@ -28,6 +28,10 @@ impl wasm_extern_t {
             ExternHost::Table(f) => f.anyref(),
         }
     }
+
+    fn thread(&self) -> &crate::store::Thread {
+        &self.thread
+    }
 }
 
 #[no_mangle]

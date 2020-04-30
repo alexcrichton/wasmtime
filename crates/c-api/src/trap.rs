@@ -20,6 +20,10 @@ impl wasm_trap_t {
     fn anyref(&self) -> wasmtime::AnyRef {
         self.trap.anyref()
     }
+
+    fn thread(&self) -> crate::store::Thread {
+        Default::default()
+    }
 }
 
 #[repr(C)]
