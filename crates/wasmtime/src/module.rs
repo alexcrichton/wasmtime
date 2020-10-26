@@ -294,6 +294,54 @@ impl Module {
             self.compiled.to_compilation_artifacts(),
         );
 
+        let a = self.compiled.to_compilation_artifacts();
+        println!(
+            "module:               {:>10}",
+            bincode_options().serialize(&a.module).unwrap().len()
+        );
+        println!(
+            "obj:                  {:>10}",
+            bincode_options().serialize(&a.obj).unwrap().len()
+        );
+        println!(
+            "unwind_info:          {:>10}",
+            bincode_options().serialize(&a.unwind_info).unwrap().len()
+        );
+        println!(
+            "data_initializers:    {:>10}",
+            bincode_options()
+                .serialize(&a.data_initializers)
+                .unwrap()
+                .len()
+        );
+        println!(
+            "funcs:                {:>10}",
+            bincode_options().serialize(&a.funcs).unwrap().len()
+        );
+        let b = a.funcs.iter().map(|(_, a)| &a.traps).collect::<Vec<_>>();
+        println!(
+            "  traps:              {:>10}",
+            bincode_options().serialize(&b).unwrap().len()
+        );
+        let b = a
+            .funcs
+            .iter()
+            .map(|(_, a)| &a.address_map)
+            .collect::<Vec<_>>();
+        println!(
+            "  address_map:        {:>10}",
+            bincode_options().serialize(&b).unwrap().len()
+        );
+        let b = a
+            .funcs
+            .iter()
+            .map(|(_, a)| &a.stack_maps)
+            .collect::<Vec<_>>();
+        println!(
+            "  stack_maps:         {:>10}",
+            bincode_options().serialize(&b).unwrap().len()
+        );
+
         let buffer = bincode_options().serialize(&artifacts)?;
         Ok(buffer)
     }

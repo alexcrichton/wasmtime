@@ -54,29 +54,29 @@ pub enum SetupError {
 #[derive(Serialize, Deserialize)]
 pub struct CompilationArtifacts {
     /// Module metadata.
-    module: Module,
+    pub module: Module,
 
     /// ELF image with functions code.
-    obj: Box<[u8]>,
+    pub obj: Box<[u8]>,
 
     /// Unwind information for function code.
-    unwind_info: Box<[ObjectUnwindInfo]>,
+    pub unwind_info: Box<[ObjectUnwindInfo]>,
 
     /// Data initiailizers.
-    data_initializers: Box<[OwnedDataInitializer]>,
+    pub data_initializers: Box<[OwnedDataInitializer]>,
 
     /// Descriptions of compiled functions
-    funcs: PrimaryMap<DefinedFuncIndex, FunctionInfo>,
+    pub funcs: PrimaryMap<DefinedFuncIndex, FunctionInfo>,
 
     /// Debug info presence flags.
-    debug_info: bool,
+    pub debug_info: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct FunctionInfo {
-    traps: Vec<TrapInformation>,
-    address_map: FunctionAddressMap,
-    stack_maps: Vec<StackMapInformation>,
+pub struct FunctionInfo {
+    pub traps: Vec<TrapInformation>,
+    pub address_map: FunctionAddressMap,
+    pub stack_maps: Vec<StackMapInformation>,
 }
 
 impl CompilationArtifacts {
