@@ -43,7 +43,7 @@ pub use crate::module::{
 };
 pub use crate::module_environ::*;
 pub use crate::tunables::Tunables;
-pub use crate::vmoffsets::{TargetSharedSignatureIndex, VMOffsets, INTERRUPTED};
+pub use crate::vmoffsets::{TargetSharedSignatureIndex, VMOffsets};
 
 /// WebAssembly page sizes are defined to be 64KiB.
 pub const WASM_PAGE_SIZE: u32 = 0x10000;

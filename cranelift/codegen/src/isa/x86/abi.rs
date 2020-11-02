@@ -753,15 +753,15 @@ fn insert_common_prologue(
             Some(arg) => {
                 let copy = pos.ins().copy(arg);
                 pos.func.locations[copy] = scratch;
-                Some(copy)
+                Some((copy, 0.into()))
             }
             None => pos
                 .func
                 .stack_limit
-                .map(|gv| interpret_gv(pos, gv, sp, scratch)),
+                .map(|gv| interpret_gv(pos, gv, sp, scratch, true)),
         };
-        if let Some(stack_limit_arg) = stack_limit_arg {
-            insert_stack_check(pos, stack_size, stack_limit_arg);
+        if let Some((stack_limit_addr, stack_limit_offset)) = stack_limit_arg {
+            insert_stack_check(pos, stack_size, stack_limit_addr, stack_limit_offset);
         }
     }
 
@@ -879,7 +879,8 @@ fn interpret_gv(
     gv: ir::GlobalValue,
     sp: Option<ir::Value>,
     scratch: ir::ValueLoc,
-) -> ir::Value {
+    get_address: bool,
+) -> (ir::Value, ir::immediates::Offset32) {
     match pos.func.global_values[gv] {
         ir::GlobalValueData::VMContext => {
             let vmctx_index = pos
@@ -887,7 +888,7 @@ fn interpret_gv(
                 .signature
                 .special_param_index(ir::ArgumentPurpose::VMContext)
                 .expect("no vmcontext parameter found");
-            match pos.func.signature.params[vmctx_index] {
+            let ret = match pos.func.signature.params[vmctx_index] {
                 AbiParam {
                     location: ArgumentLoc::Reg(_),
                     ..
@@ -908,13 +909,14 @@ fn interpret_gv(
                         pos.ins()
                             .load(value_type, ir::MemFlags::trusted(), sp.unwrap(), offset);
                     pos.func.locations[ret] = scratch;
-                    return ret;
+                    ret
                 }
                 AbiParam {
                     location: ArgumentLoc::Unassigned,
                     ..
                 } => unreachable!(),
-            }
+            };
+            (ret, 0.into())
         }
         ir::GlobalValueData::Load {
             base,
@@ -922,12 +924,16 @@ fn interpret_gv(
             global_type,
             readonly: _,
         } => {
-            let base = interpret_gv(pos, base, sp, scratch);
-            let ret = pos
-                .ins()
-                .load(global_type, ir::MemFlags::trusted(), base, offset);
-            pos.func.locations[ret] = scratch;
-            return ret;
+            let (base, _) = interpret_gv(pos, base, sp, scratch, false);
+            if get_address {
+                (base, offset)
+            } else {
+                let ret = pos
+                    .ins()
+                    .load(global_type, ir::MemFlags::trusted(), base, offset);
+                pos.func.locations[ret] = scratch;
+                (ret, 0.into())
+            }
         }
         ref other => panic!("global value for stack limit not supported: {}", other),
     }
@@ -935,50 +941,24 @@ fn interpret_gv(
 
 /// Insert a check that generates a trap if the stack pointer goes
 /// below a value in `stack_limit_arg`.
-fn insert_stack_check(pos: &mut EncCursor, stack_size: i64, stack_limit_arg: ir::Value) {
+fn insert_stack_check(
+    pos: &mut EncCursor,
+    stack_size: i64,
+    stack_limit_addr: ir::Value,
+    stack_limit_offset: ir::immediates::Offset32,
+) {
     use crate::ir::condcodes::IntCC;
-
-    // Our stack pointer, after subtracting `stack_size`, must not be below
-    // `stack_limit_arg`. To do this we're going to add `stack_size` to
-    // `stack_limit_arg` and see if the stack pointer is below that. The
-    // `stack_size + stack_limit_arg` computation might overflow, however, due
-    // to how stack limits may be loaded and set externally to trigger a trap.
-    //
-    // To handle this we'll need an extra comparison to see if the stack
-    // pointer is already below `stack_limit_arg`. Most of the time this
-    // isn't necessary though since the stack limit which triggers a trap is
-    // likely a sentinel somewhere around `usize::max_value()`. In that case
-    // only conditionally emit this pre-flight check. That way most functions
-    // only have the one comparison, but are also guaranteed that if we add
-    // `stack_size` to `stack_limit_arg` is won't overflow.
-    //
-    // This does mean that code generators which use this stack check
-    // functionality need to ensure that values stored into the stack limit
-    // will never overflow if this threshold is added.
-    if stack_size >= 32 * 1024 {
-        let cflags = pos.ins().ifcmp_sp(stack_limit_arg);
-        pos.func.locations[cflags] = ir::ValueLoc::Reg(RU::rflags as RegUnit);
-        pos.ins().trapif(
-            IntCC::UnsignedGreaterThanOrEqual,
-            cflags,
-            ir::TrapCode::StackOverflow,
-        );
-    }
-
-    // Copy `stack_limit_arg` into a %rax and use it for calculating
-    // a SP threshold.
-    let sp_threshold = pos.ins().iadd_imm(stack_limit_arg, stack_size);
-    pos.func.locations[sp_threshold] = ir::ValueLoc::Reg(RU::rax as RegUnit);
-
-    // If the stack pointer currently reaches the SP threshold or below it then after opening
-    // the current stack frame, the current stack pointer will reach the limit.
-    let cflags = pos.ins().ifcmp_sp(sp_threshold);
-    pos.func.locations[cflags] = ir::ValueLoc::Reg(RU::rflags as RegUnit);
-    pos.ins().trapif(
-        IntCC::UnsignedGreaterThanOrEqual,
-        cflags,
-        ir::TrapCode::StackOverflow,
+    let cflags = pos.ins().x86_sub_mem(
+        ir::MemFlags::trusted(),
+        stack_limit_addr,
+        // add 8 for the return pointer size and ensuring that we always account
+        // for at least some stack space used.
+        stack_size + 8,
+        stack_limit_offset,
     );
+    pos.func.locations[cflags] = ir::ValueLoc::Reg(RU::rflags as RegUnit);
+    pos.ins()
+        .trapif(IntCC::SignedLessThan, cflags, ir::TrapCode::StackOverflow);
 }
 
 /// Find all `return` instructions and insert epilogues before them.

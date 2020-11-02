@@ -797,6 +797,7 @@ fn define_memory(
     let uload8_complex = shared.by_name("uload8_complex");
     let x86_pop = x86.by_name("x86_pop");
     let x86_push = x86.by_name("x86_push");
+    let x86_sub_mem = x86.by_name("x86_sub_mem");
 
     // Shorthands for recipes.
     let rec_adjustsp = r.template("adjustsp");
@@ -829,6 +830,7 @@ fn define_memory(
     let rec_stWithIndexDisp8_abcd = r.template("stWithIndexDisp8_abcd");
     let rec_stWithIndex_abcd = r.template("stWithIndex_abcd");
     let rec_st_abcd = r.template("st_abcd");
+    let rec_x86_sub_mem = r.template("sub_mem");
 
     // Loads and stores.
     let is_load_complex_length_two =
@@ -1008,6 +1010,9 @@ fn define_memory(
 
     e.enc32(x86_pop.bind(I32), rec_popq.opcodes(&POP_REG));
     e.enc_x86_64(x86_pop.bind(I64), rec_popq.opcodes(&POP_REG));
+
+    // sub_mem
+    e.enc_x86_64(x86_sub_mem.bind(I64), rec_x86_sub_mem.opcodes(&SUB));
 
     // Stack-slot-to-the-same-stack-slot copy, which is guaranteed to turn
     // into a no-op.

@@ -647,6 +647,13 @@ pub fn write_operands(
             offset,
             ..
         } => write!(w, "{} {}, {}{}", flags, args[0], args[1], offset),
+        StoreImm {
+            flags,
+            arg,
+            imm,
+            offset,
+            ..
+        } => write!(w, "{} {}, {}{}", flags, arg, imm, offset),
         StoreComplex {
             flags,
             ref args,

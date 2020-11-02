@@ -4,7 +4,7 @@ use crate::cdsl::instructions::{
     AllInstructions, InstructionBuilder as Inst, InstructionGroup, InstructionGroupBuilder,
 };
 use crate::cdsl::operands::Operand;
-use crate::cdsl::types::ValueType;
+use crate::cdsl::types::{LaneType, ValueType};
 use crate::cdsl::typevar::{Interval, TypeSetBuilder, TypeVar};
 use crate::shared::entities::EntityRefs;
 use crate::shared::formats::Formats;
@@ -167,7 +167,7 @@ pub(crate) fn define(
             r#"
         Convert unsigned integer to floating point.
 
-        Convert packed doubleword unsigned integers to packed single-precision floating-point 
+        Convert packed doubleword unsigned integers to packed single-precision floating-point
         values. This instruction does not trap.
         "#,
             &formats.unary,
@@ -338,7 +338,7 @@ pub(crate) fn define(
         Inst::new(
             "x86_pblendw",
             r#"
-    Blend packed words using an immediate mask. Each bit of the 8-bit immediate corresponds to a 
+    Blend packed words using an immediate mask. Each bit of the 8-bit immediate corresponds to a
     lane in ``b``: if the bit is set, the lane is copied into ``a``.
     "#,
             &formats.ternary_imm8,
@@ -431,7 +431,7 @@ pub(crate) fn define(
         Unpack the high-order lanes of ``x`` and ``y`` and interleave into ``a``. With notional
         i8x4 vectors, where ``x = [x3, x2, x1, x0]`` and ``y = [y3, y2, y1, y0]``, this operation
         would result in ``a = [y3, x3, y2, x2]`` (using the Intel manual's right-to-left lane
-        ordering). 
+        ordering).
         "#,
             &formats.binary,
         )
@@ -670,7 +670,7 @@ pub(crate) fn define(
         Inst::new(
             "x86_palignr",
             r#"
-        Concatenate destination and source operands, extracting a byte-aligned result shifted to 
+        Concatenate destination and source operands, extracting a byte-aligned result shifted to
         the right by `c`.
         "#,
             &formats.ternary_imm8,
@@ -717,6 +717,27 @@ pub(crate) fn define(
         .clobbers_all_regs(true)
         .operands_in(vec![GV])
         .operands_out(vec![addr]),
+    );
+
+    let MemFlags = &Operand::new("MemFlags", &immediates.memflags);
+    let p = &Operand::new("p", iWord);
+    let Y = &Operand::new("Y", &immediates.imm64);
+    let Offset =
+        &Operand::new("Offset", &immediates.offset32).with_doc("Byte offset from base address");
+    let b1: &TypeVar = &ValueType::from(LaneType::from(types::Bool::B1)).into();
+    let a = &Operand::new("a", b1);
+
+    ig.push(
+        Inst::new(
+            "x86_sub_mem",
+            r#"
+                Subtract immediate `Y` from `p`
+            "#,
+            &formats.store_imm,
+        )
+        .operands_in(vec![MemFlags, p, Y, Offset])
+        .operands_out(vec![a])
+        .can_store(true),
     );
 
     ig.build()

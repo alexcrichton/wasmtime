@@ -44,6 +44,7 @@ pub(crate) struct Formats {
     pub(crate) stack_load: Rc<InstructionFormat>,
     pub(crate) stack_store: Rc<InstructionFormat>,
     pub(crate) store: Rc<InstructionFormat>,
+    pub(crate) store_imm: Rc<InstructionFormat>,
     pub(crate) store_complex: Rc<InstructionFormat>,
     pub(crate) store_no_offset: Rc<InstructionFormat>,
     pub(crate) table_addr: Rc<InstructionFormat>,
@@ -242,6 +243,13 @@ impl Formats {
                 .imm(&imm.memflags)
                 .value()
                 .value()
+                .imm(&imm.offset32)
+                .build(),
+
+            store_imm: Builder::new("StoreImm")
+                .imm(&imm.memflags)
+                .value()
+                .imm(&imm.imm64)
                 .imm(&imm.offset32)
                 .build(),
 

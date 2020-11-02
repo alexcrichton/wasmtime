@@ -8,7 +8,7 @@ use std::cell::Cell;
 use std::error::Error;
 use std::io;
 use std::ptr;
-use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use std::sync::atomic::{AtomicIsize, Ordering::SeqCst};
 use std::sync::Once;
 use wasmtime_environ::ir;
 
@@ -454,7 +454,7 @@ impl<'a> CallThreadState<'a> {
                 debug_assert_eq!(ret, 0);
                 let maybe_interrupted = unsafe {
                     let interrupts = (*self.vmctx).instance().interrupts();
-                    (**interrupts).stack_limit.load(SeqCst) == wasmtime_environ::INTERRUPTED
+                    (**interrupts).stack_limit.load(SeqCst) < 0
                 };
                 Err(Trap::Jit {
                     pc,
@@ -475,16 +475,14 @@ impl<'a> CallThreadState<'a> {
     /// context to determine which of three buckets we're in:
     ///
     /// 1. We are the first wasm call on the stack. This means that we need to
-    ///    set up a stack limit where beyond which if the native wasm stack
-    ///    pointer goes beyond forces a trap. For now we simply reserve an
-    ///    arbitrary chunk of bytes (1 MB from roughly the current native stack
-    ///    pointer). This logic will likely get tweaked over time.
+    ///    set up a stack limit where wasm code can only consume so much stack.
+    ///    Each wasm function will decrement from this limit and trap if the
+    ///    limit goes below zero.
     ///
     /// 2. We aren't the first wasm call on the stack. In this scenario the wasm
     ///    stack limit is already configured. This case of wasm -> host -> wasm
-    ///    we assume that the native stack consumed by the host is accounted for
-    ///    in the initial stack limit calculation. That means that in this
-    ///    scenario we do nothing.
+    ///    we don't need to do anything because our stack limit is already
+    ///    accounted for.
     ///
     /// 3. We were previously interrupted. In this case we consume the interrupt
     ///    here and return a trap, clearing the interrupt and allowing the next
@@ -495,34 +493,25 @@ impl<'a> CallThreadState<'a> {
     ///
     /// For more information about interrupts and stack limits see
     /// `crates/environ/src/cranelift.rs`.
-    ///
-    /// Note that this function must be called with `self` on the stack, not the
-    /// heap/etc.
     fn update_stack_limit(&self, max_wasm_stack: usize) -> Result<impl Drop + '_, Trap> {
-        // Make an "educated guess" to figure out where the wasm sp value should
-        // start trapping if it drops below.
-        let wasm_stack_limit = self as *const _ as usize - max_wasm_stack;
-
         let interrupts = unsafe { &**(&*self.vmctx).instance().interrupts() };
         let reset_stack_limit = match interrupts.stack_limit.compare_exchange(
-            usize::max_value(),
-            wasm_stack_limit,
+            isize::max_value(),
+            max_wasm_stack as isize,
             SeqCst,
             SeqCst,
         ) {
             Ok(_) => {
-                // We're the first wasm on the stack so we've now reserved the
-                // `max_wasm_stack` bytes of native stack space for wasm.
-                // Nothing left to do here now except reset back when we're
-                // done.
+                // We're the first wasm on the stack so we've flagged that wasm
+                // can take up at most `max_wasm_stack` bytes of stack.
                 true
             }
-            Err(n) if n == wasmtime_environ::INTERRUPTED => {
+            Err(n) if n < 0 => {
                 // This means that an interrupt happened before we actually
                 // called this function, which means that we're now
                 // considered interrupted. Be sure to consume this interrupt
                 // as part of this process too.
-                interrupts.stack_limit.store(usize::max_value(), SeqCst);
+                interrupts.stack_limit.store(isize::max_value(), SeqCst);
                 return Err(Trap::Wasm {
                     trap_code: ir::TrapCode::Interrupt,
                     backtrace: Backtrace::new_unresolved(),
@@ -537,12 +526,12 @@ impl<'a> CallThreadState<'a> {
             }
         };
 
-        struct Reset<'a>(bool, &'a AtomicUsize);
+        struct Reset<'a>(bool, &'a AtomicIsize);
 
         impl Drop for Reset<'_> {
             fn drop(&mut self) {
                 if self.0 {
-                    self.1.store(usize::max_value(), SeqCst);
+                    self.1.store(isize::max_value(), SeqCst);
                 }
             }
         }

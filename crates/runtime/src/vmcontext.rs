@@ -5,7 +5,7 @@ use crate::externref::VMExternRef;
 use crate::instance::Instance;
 use std::any::Any;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use std::sync::atomic::{AtomicIsize, Ordering::SeqCst};
 use std::u32;
 use wasmtime_environ::BuiltinFunctionIndex;
 
@@ -650,21 +650,20 @@ pub struct VMInterrupts {
     ///
     /// This is used to control both stack overflow as well as interrupting wasm
     /// modules. For more information see `crates/environ/src/cranelift.rs`.
-    pub stack_limit: AtomicUsize,
+    pub stack_limit: AtomicIsize,
 }
 
 impl VMInterrupts {
     /// Flag that an interrupt should occur
     pub fn interrupt(&self) {
-        self.stack_limit
-            .store(wasmtime_environ::INTERRUPTED, SeqCst);
+        self.stack_limit.store(-1, SeqCst);
     }
 }
 
 impl Default for VMInterrupts {
     fn default() -> VMInterrupts {
         VMInterrupts {
-            stack_limit: AtomicUsize::new(usize::max_value()),
+            stack_limit: AtomicIsize::new(isize::max_value()),
         }
     }
 }

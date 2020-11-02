@@ -390,15 +390,15 @@ impl Offset32 {
     }
 }
 
-impl Into<i32> for Offset32 {
-    fn into(self) -> i32 {
-        self.0
+impl From<Offset32> for i32 {
+    fn from(offset: Offset32) -> i32 {
+        offset.0
     }
 }
 
-impl Into<i64> for Offset32 {
-    fn into(self) -> i64 {
-        i64::from(self.0)
+impl From<Offset32> for i64 {
+    fn from(offset: Offset32) -> i64 {
+        i64::from(offset.0)
     }
 }
 

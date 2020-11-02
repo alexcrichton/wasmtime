@@ -14,7 +14,7 @@ use cranelift_wasm::{
 use std::convert::TryFrom;
 use wasmtime_environ::{
     BuiltinFunctionIndex, MemoryPlan, MemoryStyle, Module, TableStyle, Tunables, VMOffsets,
-    INTERRUPTED, WASM_PAGE_SIZE,
+    WASM_PAGE_SIZE,
 };
 
 /// Compute an `ir::ExternalName` for a given wasm function index.
@@ -1400,10 +1400,10 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         );
         // Note that the cast to `isize` happens first to allow sign-extension,
         // if necessary, to `i64`.
-        let interrupted_sentinel = pos.ins().iconst(pointer_type, INTERRUPTED as isize as i64);
+        let interrupted_sentinel = pos.ins().iconst(pointer_type, 0);
         let cmp = pos
             .ins()
-            .icmp(IntCC::Equal, interrupt, interrupted_sentinel);
+            .icmp(IntCC::SignedLessThan, interrupt, interrupted_sentinel);
         pos.ins().trapnz(cmp, ir::TrapCode::Interrupt);
         Ok(())
     }

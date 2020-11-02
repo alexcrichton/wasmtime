@@ -29,11 +29,6 @@ use cranelift_wasm::{
 use more_asserts::assert_lt;
 use std::convert::TryFrom;
 
-/// Sentinel value indicating that wasm has been interrupted.
-// Note that this has a bit of an odd definition. See the `insert_stack_check`
-// function in `cranelift/codegen/src/isa/x86/abi.rs` for more information
-pub const INTERRUPTED: usize = usize::max_value() - 32 * 1024;
-
 #[cfg(target_pointer_width = "32")]
 fn cast_to_u32(sz: usize) -> u32 {
     u32::try_from(sz).unwrap()
