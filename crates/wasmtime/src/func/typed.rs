@@ -51,6 +51,7 @@ where
     ///
     /// This function will panic if it is called when the underlying [`Func`] is
     /// connected to an asynchronous store.
+    #[inline(never)]
     pub fn call(&self, params: Params) -> Result<Results, Trap> {
         assert!(
             !cfg!(feature = "async") || !self.func.store().async_support(),

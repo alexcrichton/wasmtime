@@ -489,8 +489,8 @@ pub fn lazy_per_thread_init() -> Result<(), Trap> {
 /// kept tightly in sync with `handle_exception` above where it's accessed in a
 /// very limited fashion.
 pub fn register_tls(ptr: *const CallThreadState<'static>) {
-    unsafe {
-        let me = MY_PORT.with(|p| p.0);
-        (*MAP).lock().unwrap().insert(me, ptr);
-    }
+    // unsafe {
+    //     let me = MY_PORT.with(|p| p.0);
+    //     (*MAP).lock().unwrap().insert(me, ptr);
+    // }
 }

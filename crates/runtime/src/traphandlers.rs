@@ -153,16 +153,19 @@ impl Trap {
 /// returning them as a `Result`.
 ///
 /// Highly unsafe since `closure` won't have any dtors run.
+#[inline]
 pub unsafe fn catch_traps<F>(trap_info: &impl TrapInfo, mut closure: F) -> Result<(), Trap>
 where
     F: FnMut(),
 {
     return CallThreadState::new(trap_info).with(|cx| {
-        RegisterSetjmp(
-            cx.jmp_buf.as_ptr(),
-            call_closure::<F>,
-            &mut closure as *mut F as *mut u8,
-        )
+        call_closure::<F>(&mut closure as *mut F as *mut u8);
+        1
+        // RegisterSetjmp(
+        //     cx.jmp_buf.as_ptr(),
+        //     call_closure::<F>,
+        //     &mut closure as *mut F as *mut u8,
+        // )
     });
 
     extern "C" fn call_closure<F>(payload: *mut u8)

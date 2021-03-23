@@ -717,15 +717,25 @@ impl VMExternRefActivationsTable {
         }
     }
 
-    /// todo
+    /// Gets the value of this table's stack canary.
+    ///
+    /// This is only intended to be called when entering wasm, and is typically
+    /// paired with `set_stack_canary` below if the return value is `None`. For
+    /// more documentation see the usage of the canary in GC below.
     #[inline]
     pub fn stack_canary(&self) -> Option<usize> {
         self.stack_canary.get()
     }
 
-    /// todo
+    /// Updates the value of this table's stack canary.
+    ///
+    /// This is only intended to be called when entering wasm, and should only
+    /// be called to either set the canary for the first time or set the canary
+    /// to `None` once wasm returns. For more documentation see the usage of the
+    /// canary in GC below.
     #[inline]
     pub fn set_stack_canary(&self, canary: Option<usize>) {
+        debug_assert!(canary.is_some() != self.stack_canary.get().is_some());
         self.stack_canary.set(canary);
     }
 }
