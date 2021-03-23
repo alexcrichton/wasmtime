@@ -15,7 +15,7 @@ log = "0.4.8"
 rayon = "1.2.1"
 wasmparser = "0.76"
 wasmprinter = "0.2.24"
-wasmtime = { path = "../wasmtime" }
+wasmtime = { path = "../wasmtime", default-features = false }
 wasmtime-wast = { path = "../wast" }
 wasm-encoder = "0.4"
 wasm-smith = "0.4.0"

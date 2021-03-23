@@ -1,0 +1,16 @@
+<script>
+  async function foo() {
+    const i = await WebAssembly.instantiate(await (await fetch('./foo.wasm')).arrayBuffer());
+    console.log('a');
+      console.log(i);
+    const run = i.instance.exports.run;
+const start = Date.now();
+let total = 10000000;
+for (let i = 0; i < total; i++)
+  run(1, 1);
+console.log(((Date.now() - start) / total) * 1000000);
+  }
+  foo();
+</script>
+
+
