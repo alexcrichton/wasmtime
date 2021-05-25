@@ -4,9 +4,6 @@ inputs:
   token:
     description: ''
     required: true
-  name:
-    description: ''
-    required: true
   files:
     description: ''
     required: true
