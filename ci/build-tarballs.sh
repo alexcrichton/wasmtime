@@ -1,107 +1,81 @@
 #!/bin/bash
 
-# A small shell script invoked from CI on the final Linux builder which actually
-# assembles the release artifacts for a particular platform. This will take the
-# binary artifacts of previous builders and create associated tarballs to
-# publish to GitHub.
+# A small script used for assembling release tarballs for both the `wasmtime`
+# binary and the C API. This is executed with two arguments, mostly coming from
+# the CI matrix.
 #
-# The first argument of this is the "platform" name to put into the tarball, and
-# the second argument is the name of the github actions platform which is where
-# we source binaries from. The final third argument is ".exe" on Windows to
-# handle executable extensions right.
+# * The first argument is the "target", if present, currently only for
+#   cross-compiles
+# * The second argument is the name of the platform, used to name the release
 #
-# Usage: build-tarballs.sh PLATFORM [.exe]
-
-# where PLATFORM is e.g. x86_64-linux, aarch64-linux, ...
+# This expects the build to already be done and will assemble release artifacts
+# in `dist/`
 
 set -ex
 
-platform=$1
-exe=$2
+target=$1
+platform=$2
 
 rm -rf tmp
 mkdir tmp
 mkdir -p dist
 
+tag=dev
+if [[ $GITHUB_REF == refs/tags/v* ]]; then
+  tag=${GITHUB_REF:10}
+fi
+
+bin_pkgname=wasmtime-$TAG-$platform
+api_pkgname=wasmtime-$TAG-$platform-c-api
+
+mkdir tmp/$api_pkgname
+mkdir tmp/$api_pkgname/lib
+mkdir tmp/$api_pkgname/include
+mkdir tmp/$bin_pkgname
+cp LICENSE README.md tmp/$api_pkgname
+cp LICENSE README.md tmp/$bin_pkgname
+cp crates/c-api/wasm-c-api/include/wasm.h tmp/$api_pkgname/include
+cp crates/c-api/include/{wasmtime,wasi}.h tmp/$api_pkgname/include
+
+fmt=tar
+if [ "$platform" = "x86_64-windows" ]; then
+  cp target/release/wasmtime.exe tmp/$bin_pkgname
+  cp target/release/{wasmtime.dll,wasmtime.lib,wasmtime.dll.lib} tmp/$api_pkgname/lib
+  fmt=zip
+
+  # Generate a `*.msi` installer for Windows as well
+  export WT_VERSION=`cat Cargo.toml | sed -n 's/^version = "\([^"]*\)".*/\1/p'`
+  "$WIX/bin/candle" -arch x64 -out target/wasmtime.wixobj ci/wasmtime.wxs
+  "$WIX/bin/light" -out dist/$bin_pkgname.msi target/wasmtime.wixobj -ext WixUtilExtension
+  rm dist/$bin_pkgname.wixpdb
+elif [ "$platform" = "x86_64-mingw" ]; then
+  cp target/x86_64-pc-windows-gnu/release/wasmtime.exe tmp/$bin_pkgname
+  cp target/release/{wasmtime.dll,libwasmtime.a} tmp/$api_pkgname/lib
+  fmt=zip
+elif [ "$platform" = "x86_64-macos" ]; then
+  # Postprocess the macOS dylib a bit to have a more reasonable `LC_ID_DYLIB`
+  # directive than the default one that comes out of the linker when typically
+  # doing `cargo build`. For more info see #984
+  install_name_tool -id "@rpath/libwasmtime.dylib" target/release/libwasmtime.dylib
+  cp target/release/wasmtime tmp/$bin_pkgname
+  cp target/release/libwasmtime.{a,dylib} tmp/$api_pkgname/lib
+elif [ "$target" = "" ]; then
+  cp target/release/wasmtime tmp/$bin_pkgname
+  cp target/release/libwasmtime.{a,so} tmp/$api_pkgname/lib
+else
+  cp target/$target/release/wasmtime tmp/$bin_pkgname
+  cp target/$target/release/libwasmtime.{a,so} tmp/$api_pkgname/lib
+fi
+
+
 mktarball() {
   dir=$1
-  if [ "$exe" = "" ]; then
+  if [ "$fmt" = "tar" ]; then
     tar cJf dist/$dir.tar.xz -C tmp $dir
   else
     (cd tmp && zip -r ../dist/$dir.zip $dir)
   fi
 }
 
-# Create the main tarball of binaries
-bin_pkgname=wasmtime-$TAG-$platform
-mkdir tmp/$bin_pkgname
-cp LICENSE README.md tmp/$bin_pkgname
-mv bins-$platform/wasmtime$exe tmp/$bin_pkgname
-chmod +x tmp/$bin_pkgname/wasmtime$exe
-mktarball $bin_pkgname
-
-if [ -f bins-$platform/installer.msi ]; then
-  mv bins-$platform/installer.msi dist/$bin_pkgname.msi
-fi
-
-# Create tarball of API libraries
-api_pkgname=wasmtime-$TAG-$platform-c-api
-mkdir tmp/$api_pkgname
-mkdir tmp/$api_pkgname/lib
-mkdir tmp/$api_pkgname/include
-cp LICENSE README.md tmp/$api_pkgname
-mv bins-$platform/* tmp/$api_pkgname/lib
-cp crates/c-api/wasm-c-api/include/wasm.h tmp/$api_pkgname/include
-cp crates/c-api/include/{wasmtime,wasi}.h tmp/$api_pkgname/include
 mktarball $api_pkgname
-
-    # - name: Calculate tag name
-    #   run: |
-    #     name=dev
-    #     if [[ $GITHUB_REF == refs/tags/v* ]]; then
-    #       name=${GITHUB_REF:10}
-    #     fi
-    #     echo ::set-output name=val::$name
-    #     echo TAG=$name >> $GITHUB_ENV
-    #   id: tagname
-
-    # # ... and now perform some goop to move all the relevant artifacts into
-    # # something that we'll upload from this action.
-
-    # - run: mkdir dist
-
-    # # Move binaries to dist folder
-    # - run: cp target/release/wasmtime dist
-    #   if: matrix.os != 'windows-latest' && matrix.target == ''
-    # - run: cp target/${{ matrix.target }}/release/wasmtime dist
-    #   if: matrix.os != 'windows-latest' && matrix.target != ''
-    # - run: cp target/release/wasmtime.exe dist
-    #   if: matrix.build == 'x86_64-windows'
-    # - run: cp target/x86_64-pc-windows-gnu/release/wasmtime.exe dist
-    #   if: matrix.build == 'x86_64-mingw'
-
-    # # Move libwasmtime dylib to dist folder
-    # - run: cp target/release/libwasmtime.{so,a} dist
-    #   if: matrix.os == 'ubuntu-latest' && matrix.target == ''
-    # - run: cp target/${{ matrix.target }}/release/libwasmtime.{so,a} dist
-    #   if: matrix.os == 'ubuntu-latest' && matrix.target != ''
-    # - run: cp target/release/libwasmtime.{dylib,a} dist
-    #   if: matrix.os == 'macos-latest'
-    # - run: cp target/release/wasmtime.{dll,lib,dll.lib} dist
-    #   if: matrix.build == 'x86_64-windows'
-    # - run: cp target/x86_64-pc-windows-gnu/release/{wasmtime.dll,libwasmtime.a} dist
-    #   if: matrix.build == 'x86_64-mingw'
-
-    # # Make a Windows MSI installer if we're on Windows
-    # - run: |
-    #     export WT_VERSION=`cat Cargo.toml | sed -n 's/^version = "\([^"]*\)".*/\1/p'`
-    #     "$WIX/bin/candle" -arch x64 -out target/wasmtime.wixobj ci/wasmtime.wxs
-    #     "$WIX/bin/light" -out dist/installer.msi target/wasmtime.wixobj -ext WixUtilExtension
-    #     rm dist/installer.wixpdb
-    #   if: matrix.build == 'x86_64-windows'
-
-    # # Postprocess the macOS dylib a bit to have a more reasonable `LC_ID_DYLIB`
-    # # directive than the default one that comes out of the linker when typically
-    # # doing `cargo build`. For more info see #984
-    # - run: install_name_tool -id "@rpath/libwasmtime.dylib" target/release/libwasmtime.dylib
-    #   if: matrix.os == 'macos-latest'
+mktarball $bin_pkgname
