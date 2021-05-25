@@ -71,7 +71,7 @@ fi
 mktarball() {
   dir=$1
   if [ "$fmt" = "tar" ]; then
-    tar -c -I 'xz -9 -T0' -f dst/$dir.tar.gz -C tmp $dir
+    tar -c -I 'xz -9 -T0' -f dist/$dir.tar.xz -C tmp $dir
   else
     (cd tmp && powershell Compress-Archive $dir $dir.zip)
     mv tmp/$dir.zip dist
