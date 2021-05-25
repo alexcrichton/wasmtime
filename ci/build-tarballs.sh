@@ -4,17 +4,17 @@
 # binary and the C API. This is executed with two arguments, mostly coming from
 # the CI matrix.
 #
-# * The first argument is the "target", if present, currently only for
+# * The first argument is the name of the platform, used to name the release
+# * The second argument is the "target", if present, currently only for
 #   cross-compiles
-# * The second argument is the name of the platform, used to name the release
 #
 # This expects the build to already be done and will assemble release artifacts
 # in `dist/`
 
 set -ex
 
-target=$1
-platform=$2
+platform=$1
+target=$2
 
 rm -rf tmp
 mkdir tmp
@@ -25,8 +25,8 @@ if [[ $GITHUB_REF == refs/tags/v* ]]; then
   tag=${GITHUB_REF:10}
 fi
 
-bin_pkgname=wasmtime-$TAG-$platform
-api_pkgname=wasmtime-$TAG-$platform-c-api
+bin_pkgname=wasmtime-$tag-$platform
+api_pkgname=wasmtime-$tag-$platform-c-api
 
 mkdir tmp/$api_pkgname
 mkdir tmp/$api_pkgname/lib
@@ -50,7 +50,7 @@ if [ "$platform" = "x86_64-windows" ]; then
   rm dist/$bin_pkgname.wixpdb
 elif [ "$platform" = "x86_64-mingw" ]; then
   cp target/x86_64-pc-windows-gnu/release/wasmtime.exe tmp/$bin_pkgname
-  cp target/release/{wasmtime.dll,libwasmtime.a} tmp/$api_pkgname/lib
+  cp target/x86_64-pc-windows-gnu/release/{wasmtime.dll,libwasmtime.a} tmp/$api_pkgname/lib
   fmt=zip
 elif [ "$platform" = "x86_64-macos" ]; then
   # Postprocess the macOS dylib a bit to have a more reasonable `LC_ID_DYLIB`
@@ -73,7 +73,7 @@ mktarball() {
   if [ "$fmt" = "tar" ]; then
     tar cJf dist/$dir.tar.xz -C tmp $dir
   else
-    (cd tmp && zip -r ../dist/$dir.zip $dir)
+    tar.exe -a -c -f dist/$dir.zip -C tmp $dir
   fi
 }
 
