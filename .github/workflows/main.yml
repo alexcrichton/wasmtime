@@ -394,6 +394,8 @@ jobs:
   build:
     name: Build wasmtime
     runs-on: ${{ matrix.os }}
+    env:
+      QEMU_VERSION: 5.0.0
     strategy:
       fail-fast: false
       matrix:
@@ -434,6 +436,43 @@ jobs:
         echo CARGO_BUILD_TARGET=${{ matrix.target }} >> $GITHUB_ENV
         rustup target add ${{ matrix.target }}
       if: matrix.target != ''
+
+    - uses: actions/cache@v2
+      with:
+        path: ${{ runner.tool_cache }}/qemu
+        key: qemu-${{ env.QEMU_VERSION }}-${{ matrix.target }}
+      if: matrix.target != '' && matrix.os == 'ubuntu-latest'
+
+    - name: Install cross-compilation tools
+      run: |
+        set -ex
+        sudo apt-get update
+        sudo apt-get install -y ${{ matrix.gcc_package }}
+
+        # Configure Cargo for cross compilation and tell it how it can run
+        # cross executables
+        upcase=$(echo ${{ matrix.target }} | awk '{ print toupper($0) }' | sed 's/-/_/g')
+        echo CARGO_TARGET_${upcase}_RUNNER=${{ runner.tool_cache }}/qemu/${{ matrix.qemu }} >> $GITHUB_ENV
+        echo CARGO_TARGET_${upcase}_LINKER=${{ matrix.gcc }} >> $GITHUB_ENV
+
+        # See comments in the source for why we enable this during QEMU
+        # emulation.
+        echo WASMTIME_TEST_NO_HOG_MEMORY=1 >> $GITHUB_ENV
+
+        # See if qemu is already in the cache
+        if [ -f ${{ runner.tool_cache }}/qemu/${{ matrix.qemu }} ]; then
+          exit 0
+        fi
+
+        # Download and build qemu from source since the most recent release is
+        # way faster at arm emulation than the current version github actions'
+        # ubuntu image uses. Disable as much as we can to get it to build
+        # quickly.
+        curl https://download.qemu.org/qemu-5.0.0.tar.xz | tar xJf -
+        cd qemu-5.0.0
+        ./configure --target-list=${{ matrix.qemu_target }} --prefix=${{ runner.tool_cache}}/qemu --disable-tools --disable-slirp --disable-fdt --disable-capstone --disable-docs
+        make -j$(nproc) install
+      if: matrix.target != '' && matrix.os == 'ubuntu-latest'
 
     - name: Install cross-compilation tools
       run: |

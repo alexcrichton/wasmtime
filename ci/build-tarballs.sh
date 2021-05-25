@@ -71,7 +71,7 @@ fi
 mktarball() {
   dir=$1
   if [ "$fmt" = "tar" ]; then
-    tar cJf dist/$dir.tar.xz -C tmp $dir
+    tar -c -I 'xz -9 -T0' -f dst/$dir.tar.gz -C tmp $dir
   else
     tar.exe -a -c -f dist/$dir.zip -C tmp $dir
   fi
