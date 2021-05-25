@@ -47,8 +47,8 @@ async function runOnce() {
       try {
         core.info(`fetching release for ${name}`);
         const release = await octokit.repos.getReleaseByTag({ owner, repo, tag: name });
-        core.info(`deleting release ${release.id}`);
-        await octokit.repos.deleteRelease({ owner, repo, release_id: release.id });
+        core.info(`deleting release ${release.data.id}`);
+        await octokit.repos.deleteRelease({ owner, repo, release_id: release.data.id });
       } catch (e) {
         // ignore, there may not have been a release
         console.log("ERROR: ", JSON.stringify(e, null, 2));
