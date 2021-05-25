@@ -73,7 +73,8 @@ mktarball() {
   if [ "$fmt" = "tar" ]; then
     tar -c -I 'xz -9 -T0' -f dst/$dir.tar.gz -C tmp $dir
   else
-    tar.exe -a -c -f dist/$dir.zip -C tmp $dir
+    (cd tmp && powershell Compress-Archive $dir $dir.zip)
+    mv tmp/$dir.zip dist
   fi
 }
 
