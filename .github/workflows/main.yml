@@ -502,8 +502,9 @@ jobs:
     #   env:
     #     RUST_BACKTRACE: 1
 
+    # Assemble release artifats appropriate for this platform, then upload them
+    # unconditionally to this workflow's files so we have a copy of them.
     - run: ./ci/build-tarballs.sh "${{ matrix.build }}" "${{ matrix.target }}"
-
     - uses: actions/upload-artifact@v1
       with:
         name: bins-${{ matrix.build }}
@@ -512,13 +513,13 @@ jobs:
     # ... and if this was an actual push (tag or `main`) then we publish a
     # new release. This'll automatically publish a tag release or update `dev`
     # with this `sha`
-    # - name: Publish Release
-    #   uses: ./.github/actions/github-release
-    #   if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    #   with:
-    #     files: "dist/*"
-    #     name: ${{ steps.tagname.outputs.val }}
-    #     token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Publish Release
+      uses: ./.github/actions/github-release
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+      with:
+        files: "dist/*"
+        name: ${{ steps.tagname.outputs.val }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
   # cargo-audit:
   #   env:
