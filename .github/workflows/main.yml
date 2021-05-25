@@ -440,7 +440,7 @@ jobs:
     - uses: actions/cache@v2
       with:
         path: ${{ runner.tool_cache }}/qemu
-        key: qemu-${{ env.QEMU_VERSION }}-${{ matrix.target }}
+        key: qemu-${{ matrix.target }}-${{ env.QEMU_VERSION }}
       if: matrix.target != '' && matrix.os == 'ubuntu-latest'
 
     - name: Install cross-compilation tools
@@ -460,7 +460,7 @@ jobs:
         echo WASMTIME_TEST_NO_HOG_MEMORY=1 >> $GITHUB_ENV
 
         # See if qemu is already in the cache
-        if [ -f ${{ runner.tool_cache }}/qemu/${{ matrix.qemu }} ]; then
+        if [ -f ${{ runner.tool_cache }}/qemu/built ]; then
           exit 0
         fi
 
@@ -472,6 +472,7 @@ jobs:
         cd qemu-5.0.0
         ./configure --target-list=${{ matrix.qemu_target }} --prefix=${{ runner.tool_cache}}/qemu --disable-tools --disable-slirp --disable-fdt --disable-capstone --disable-docs
         make -j$(nproc) install
+        touch ${{ runner.tool_cache }}/qemu/built
       if: matrix.target != '' && matrix.os == 'ubuntu-latest'
 
     # Install wasm32-wasi target in order to build wasi-common's integration
