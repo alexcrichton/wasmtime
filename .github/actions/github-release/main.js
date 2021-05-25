@@ -34,11 +34,15 @@ async function runOnce() {
     let tag = null;
     try {
       tag = await octokit.request("GET /repos/:owner/:repo/git/refs/tags/:name", { owner, repo, name });
+      core.info(`found existing tag`);
+      console.log("tag: ", JSON.stringify(tag.data, null, 2));
     } catch (e) {
       // ignore if this tag doesn't exist
+      core.info(`no existing tag found`);
     }
 
     if (tag === null || tag.data.object.sha !== sha) {
+      core.info(`updating existing tag or creating new one`);
       // Delete the previous release for this tag, if any
       try {
         core.info(`fetching release for ${name}`);
@@ -76,6 +80,8 @@ async function runOnce() {
           // tag by this point.
         }
       }
+    } else {
+      core.info(`existing tag works`);
     }
   }
 
