@@ -1892,16 +1892,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "os_pipe"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb233f06c2307e1f5ce2ecad9f8121cffbbee2c95428f44ea85222e460d0d213"
-dependencies = [
- "libc",
- "winapi",
-]
-
-[[package]]
 name = "p256"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2922,25 +2912,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-programs"
-version = "0.19.0"
-dependencies = [
- "anyhow",
- "cap-std",
- "cfg-if 1.0.0",
- "os_pipe",
- "pretty_env_logger",
- "target-lexicon",
- "tempfile",
- "tokio",
- "wasi-cap-std-sync",
- "wasi-common",
- "wasmtime",
- "wasmtime-wasi",
- "wat",
-]
-
-[[package]]
 name = "textwrap"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3525,26 +3496,6 @@ dependencies = [
 [[package]]
 name = "wasmtime-c-api"
 version = "0.19.0"
-dependencies = [
- "anyhow",
- "cap-std",
- "env_logger 0.8.3",
- "once_cell",
- "wasi-cap-std-sync",
- "wasi-common",
- "wasmtime",
- "wasmtime-c-api-macros",
- "wasmtime-wasi",
- "wat",
-]
-
-[[package]]
-name = "wasmtime-c-api-macros"
-version = "0.19.0"
-dependencies = [
- "proc-macro2",
- "quote",
-]
 
 [[package]]
 name = "wasmtime-cache"
@@ -3573,43 +3524,6 @@ dependencies = [
 [[package]]
 name = "wasmtime-cli"
 version = "0.27.0"
-dependencies = [
- "anyhow",
- "criterion",
- "env_logger 0.8.3",
- "file-per-thread-logger",
- "filecheck",
- "humantime 2.1.0",
- "lazy_static",
- "libc",
- "log",
- "more-asserts",
- "num_cpus",
- "object",
- "pretty_env_logger",
- "rayon",
- "structopt",
- "target-lexicon",
- "tempfile",
- "test-programs",
- "tokio",
- "tracing-subscriber",
- "wasmparser",
- "wasmtime",
- "wasmtime-cache",
- "wasmtime-debug",
- "wasmtime-environ",
- "wasmtime-fuzzing",
- "wasmtime-jit",
- "wasmtime-obj",
- "wasmtime-runtime",
- "wasmtime-wasi",
- "wasmtime-wasi-crypto",
- "wasmtime-wasi-nn",
- "wasmtime-wast",
- "wast 35.0.2",
- "wat",
-]
 
 [[package]]
 name = "wasmtime-cranelift"

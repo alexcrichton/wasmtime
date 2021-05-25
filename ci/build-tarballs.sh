@@ -54,3 +54,54 @@ mv bins-$platform/* tmp/$api_pkgname/lib
 cp crates/c-api/wasm-c-api/include/wasm.h tmp/$api_pkgname/include
 cp crates/c-api/include/{wasmtime,wasi}.h tmp/$api_pkgname/include
 mktarball $api_pkgname
+
+    # - name: Calculate tag name
+    #   run: |
+    #     name=dev
+    #     if [[ $GITHUB_REF == refs/tags/v* ]]; then
+    #       name=${GITHUB_REF:10}
+    #     fi
+    #     echo ::set-output name=val::$name
+    #     echo TAG=$name >> $GITHUB_ENV
+    #   id: tagname
+
+    # # ... and now perform some goop to move all the relevant artifacts into
+    # # something that we'll upload from this action.
+
+    # - run: mkdir dist
+
+    # # Move binaries to dist folder
+    # - run: cp target/release/wasmtime dist
+    #   if: matrix.os != 'windows-latest' && matrix.target == ''
+    # - run: cp target/${{ matrix.target }}/release/wasmtime dist
+    #   if: matrix.os != 'windows-latest' && matrix.target != ''
+    # - run: cp target/release/wasmtime.exe dist
+    #   if: matrix.build == 'x86_64-windows'
+    # - run: cp target/x86_64-pc-windows-gnu/release/wasmtime.exe dist
+    #   if: matrix.build == 'x86_64-mingw'
+
+    # # Move libwasmtime dylib to dist folder
+    # - run: cp target/release/libwasmtime.{so,a} dist
+    #   if: matrix.os == 'ubuntu-latest' && matrix.target == ''
+    # - run: cp target/${{ matrix.target }}/release/libwasmtime.{so,a} dist
+    #   if: matrix.os == 'ubuntu-latest' && matrix.target != ''
+    # - run: cp target/release/libwasmtime.{dylib,a} dist
+    #   if: matrix.os == 'macos-latest'
+    # - run: cp target/release/wasmtime.{dll,lib,dll.lib} dist
+    #   if: matrix.build == 'x86_64-windows'
+    # - run: cp target/x86_64-pc-windows-gnu/release/{wasmtime.dll,libwasmtime.a} dist
+    #   if: matrix.build == 'x86_64-mingw'
+
+    # # Make a Windows MSI installer if we're on Windows
+    # - run: |
+    #     export WT_VERSION=`cat Cargo.toml | sed -n 's/^version = "\([^"]*\)".*/\1/p'`
+    #     "$WIX/bin/candle" -arch x64 -out target/wasmtime.wixobj ci/wasmtime.wxs
+    #     "$WIX/bin/light" -out dist/installer.msi target/wasmtime.wixobj -ext WixUtilExtension
+    #     rm dist/installer.wixpdb
+    #   if: matrix.build == 'x86_64-windows'
+
+    # # Postprocess the macOS dylib a bit to have a more reasonable `LC_ID_DYLIB`
+    # # directive than the default one that comes out of the linker when typically
+    # # doing `cargo build`. For more info see #984
+    # - run: install_name_tool -id "@rpath/libwasmtime.dylib" target/release/libwasmtime.dylib
+    #   if: matrix.os == 'macos-latest'
