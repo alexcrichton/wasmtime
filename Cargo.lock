@@ -3619,6 +3619,7 @@ dependencies = [
  "wasmtime-wast",
  "wast 35.0.2",
  "wat",
+ "winapi",
 ]
 
 [[package]]
