@@ -256,6 +256,24 @@ fn publish(krate: &Crate) {
     if !CRATES_TO_PUBLISH.iter().any(|s| *s == krate.name) {
         return;
     }
+
+    // First make sure the crate isn't already published at this version. This
+    // script may be re-run and there's no need to re-attempt previous work.
+    let output = Command::new("curl")
+        .arg(&format!("https://crates.io/api/v1/crates/{}", krate.name))
+        .output()
+        .expect("failed to invoke `curl`");
+    if output.status.success()
+        && String::from_utf8_lossy(&output.stdout)
+            .contains(&format!("\"newest_version\":\"{}\"", krate.version))
+    {
+        println!(
+            "skip publish {} because {} is latest version",
+            krate.name, krate.version,
+        );
+        return;
+    }
+
     let status = Command::new("cargo")
         .arg("publish")
         .current_dir(krate.manifest.parent().unwrap())
@@ -266,16 +284,42 @@ fn publish(krate: &Crate) {
         println!("FAIL: failed to publish `{}`: {}", krate.name, status);
     }
 
+    // After we've published then make sure that the `wasmtime-publish` group is
+    // added to this crate for future publications. If it's already present
+    // though we can skip the `cargo owner` modification.
+    let output = Command::new("curl")
+        .arg(&format!(
+            "https://crates.io/api/v1/crates/{}/owners",
+            krate.name
+        ))
+        .output()
+        .expect("failed to invoke `curl`");
+    if output.status.success()
+        && String::from_utf8_lossy(&output.stdout).contains("wasmtime-publish")
+    {
+        println!(
+            "wasmtime-publish already listed as an owner of {}",
+            krate.name
+        );
+        return;
+    }
+
     // Note that the status is ignored here. This fails most of the time because
     // the owner is already set and present, so we only want to add this to
     // crates which haven't previously been published.
-    Command::new("cargo")
+    let status = Command::new("cargo")
         .arg("owner")
         .arg("-a")
         .arg("github:bytecodealliance:wasmtime-publish")
         .arg(&krate.name)
         .status()
         .expect("failed to run cargo");
+    if !status.success() {
+        panic!(
+            "FAIL: failed to add wasmtime-publish as owner `{}`: {}",
+            krate.name, status
+        );
+    }
 }
 
 // Verify the current tree is publish-able to crates.io. The intention here is
