@@ -61,8 +61,6 @@ const CRATES_TO_PUBLISH: &[&str] = &[
     "wasmtime-wasi",
     "wasmtime-wasi-nn",
     "wasmtime-wasi-crypto",
-    "wasmtime-rust-macro",
-    "wasmtime-rust",
     "wasmtime-wast",
     "wasmtime-cli",
 ];
