@@ -11,7 +11,8 @@ jobs:
         with:
           submodules: true
           fetch-depth: 0
-      - run: |
+      - name: Test if tag is needed
+        run: |
           git log ${{ github.event.before }}...${{ github.event.after }} | tee main.log
           version=$(grep 'version =' Cargo.toml | head -n 1 | sed 's/.*"\(.*\)"/\1/')
           echo "version: $version"
@@ -25,9 +26,8 @@ jobs:
             echo "::set-output name=push_tag::no"
           fi
         id: tag
-      - if: ${{ steps.tag.outputs.push_tag }} == "yes"
+      - name: Push the tag
         run: |
-          echo ${{ steps.tag.outputs.push_tag }}
           git_refs_url=$(jq .repository.git_refs_url $GITHUB_EVENT_PATH | tr -d '"' | sed 's/{\/sha}//g')
           curl -iX POST $git_refs_url \
             -H "Authorization: token ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
@@ -37,4 +37,4 @@ jobs:
             "sha": "${{ steps.tag.outputs.sha }}"
           }
           EOF
-
+        if: steps.tag.outputs.push_tag == 'yes'

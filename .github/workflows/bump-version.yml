@@ -2,6 +2,9 @@ name: "Bump version number"
 on:
   schedule:
     - cron: '0 0 1 * *'
+  push:
+    branches: [main]
+
 jobs:
   bump_version:
     runs-on: ubuntu-latest
