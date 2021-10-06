@@ -22,7 +22,6 @@ jobs:
           else
             echo "::set-output name=push_tag::no"
           fi
-          git tag "v$version"
         id: tag
       - if: ${{ steps.tag.outputs.push_tag }} == "yes"
         run: |
