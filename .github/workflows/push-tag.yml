@@ -12,7 +12,7 @@ jobs:
           submodules: true
           fetch-depth: 0
       - run: |
-          git log ${{ github.event.before }} ${{ github.event.after }} | tee main.log
+          git log ${{ github.event.before }}...${{ github.event.after }} | tee main.log
           version=$(grep 'version =' Cargo.toml | head -n 1 | sed 's/.*"\(.*\)"/\1/')
           echo "version: $version"
           echo "::set-output name=version::$version"
