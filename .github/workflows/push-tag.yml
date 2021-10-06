@@ -24,7 +24,6 @@ jobs:
           fi
           git tag "v$version"
         id: tag
-
       - if: ${{ steps.tag.outputs.push_tag }} == "yes"
         run: |
           git_refs_url=$(jq .repository.git_refs_url $GITHUB_EVENT_PATH | tr -d '"' | sed 's/{\/sha}//g')
