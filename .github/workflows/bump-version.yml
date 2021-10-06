@@ -35,3 +35,5 @@ jobs:
             It's recommended that maintainers double-check that `RELEASES.md`
             is up-to-date. If not please feel free to push to this PR any
             modifications to the release notes.
+
+            [automatically-tag-and-release-this-commit]

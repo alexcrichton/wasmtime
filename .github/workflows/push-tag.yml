@@ -1,0 +1,39 @@
+name: "Push tagged release"
+on:
+  push:
+    branches: [main]
+
+jobs:
+  push_tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+          fetch-depth: 0
+      - run: |
+          git log ${{ github.event.before }} ${{ github.event.after }} | tee main.log
+          version=$(grep 'version =' Cargo.toml | head -n 1 | sed 's/.*"\(.*\)"/\1/')
+          echo "version: $version"
+          echo "::set-output name=version::$version"
+          echo "::set-output name=sha::$(git rev-parse HEAD)"
+          if grep -q "automatically-tag-and-release-this-commit" main.log; then
+            echo "::set-output name=push_tag::yes"
+          else
+            echo "::set-output name=push_tag::no"
+          fi
+          git tag "v$version"
+        id: tag
+
+      - if: ${{ steps.tag.outputs.push_tag }} == "yes"
+        run: |
+          git_refs_url=$(jq .repository.git_refs_url $GITHUB_EVENT_PATH | tr -d '"' | sed 's/{\/sha}//g')
+          curl -X POST $git_refs_url \
+            -H "Authorization: token ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+            -d @- << EOF
+          {
+            "ref": "refs/tags/v${{ steps.tag.outputs.version }}",
+            "sha": "${{ steps.tag.outputs.sha }}"
+          }
+          EOF
+
