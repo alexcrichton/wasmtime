@@ -1,7 +1,9 @@
 name: "Bump version number"
 on:
   schedule:
-    - cron: '0 0 1 * *'
+    - cron: '*/5 * * * *'
+  #   - cron: '0 0 1 * *'
+
 jobs:
   bump_version:
     runs-on: ubuntu-latest
@@ -17,7 +19,11 @@ jobs:
           ./publish bump
           version=$(grep 'version =' Cargo.toml | head -n 1 | sed 's/.*"\(.*\)"/\1/')
           echo "::set-output name=version::$version"
-          git commit -am "Bump Wasmtime to $version"
+          git commit -a -F-<<EOF
+          Bump Wasmtime to $version
+
+          [automatically-tag-and-release-this-commit]
+          EOF
         id: bump
       - uses: peter-evans/create-pull-request@v3
         with:
@@ -27,13 +33,11 @@ jobs:
           title: Release Wasmtime ${{ steps.bump.outputs.version }}
           body: |
             This is an automated pull request from CI which is intended to
-            notify maintainers that it's time to release Wasmtime
+            notify maintainers that it's time to release Wasmtime version
             ${{ steps.bump.outputs.version }}. Version numbers have been bumped
-            in this PR automatically and the release process will get triggered
-            once this PR is merged.
+            in this PR automatically and the release process automatically enter
+            its next stages when this PR is merged.
 
             It's recommended that maintainers double-check that `RELEASES.md`
             is up-to-date. If not please feel free to push to this PR any
             modifications to the release notes.
-
-            [automatically-tag-and-release-this-commit]
