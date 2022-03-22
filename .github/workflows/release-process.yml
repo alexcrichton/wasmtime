@@ -25,7 +25,7 @@ on:
       action:
         description: 'Publish script argument: "cut", "release-latest", or "release-patch"'
         required: false
-        default: 'bump'
+        default: 'cut'
 
 jobs:
   bump_version:
