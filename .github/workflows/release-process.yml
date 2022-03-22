@@ -186,7 +186,7 @@ jobs:
           # Push the result to a branch and setup metadata for the step below
           # that creates a PR
           git push origin HEAD:ci/bump-to-$num
-          echo "PR_HEAD=ci/release-$num" >> $GITHUB_ENV
+          echo "PR_HEAD=ci/bump-to-$num" >> $GITHUB_ENV
           echo "PR_TITLE=Release Wasmtime $num" >> $GITHUB_ENV
           echo "PR_BASE=${{ github.ref_name }}" >> $GITHUB_ENV
           cat > pr-body <<-EOF
