@@ -4,7 +4,7 @@
 
 ## 0.36.0
 
-Unreleased.
+Released 2022-03-22.
 
 ### Added
 
