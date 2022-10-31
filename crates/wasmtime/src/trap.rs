@@ -430,7 +430,14 @@ impl fmt::Display for TrapBacktrace {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "wasm backtrace:")?;
 
+        let mut needs_newline = false;
         for (i, frame) in self.wasm_trace.iter().enumerate() {
+            // Avoid putting a trailing newline on the output
+            if needs_newline {
+                writeln!(f, "")?;
+            } else {
+                needs_newline = true;
+            }
             let name = frame.module_name().unwrap_or("<unknown>");
             write!(f, "  {:>3}: ", i)?;
 
@@ -444,7 +451,6 @@ impl fmt::Display for TrapBacktrace {
             if frame.symbols().is_empty() {
                 write!(f, "{}!", name)?;
                 write_raw_func_name(f)?;
-                writeln!(f, "")?;
             } else {
                 for (i, symbol) in frame.symbols().iter().enumerate() {
                     if i > 0 {
@@ -457,8 +463,8 @@ impl fmt::Display for TrapBacktrace {
                         None if i == 0 => write_raw_func_name(f)?,
                         None => write!(f, "<inlined function>")?,
                     }
-                    writeln!(f, "")?;
                     if let Some(file) = symbol.file() {
+                        writeln!(f, "")?;
                         write!(f, "                    at {}", file)?;
                         if let Some(line) = symbol.line() {
                             write!(f, ":{}", line)?;
@@ -467,7 +473,6 @@ impl fmt::Display for TrapBacktrace {
                             }
                         }
                     }
-                    writeln!(f, "")?;
                 }
             }
         }
