@@ -36,8 +36,8 @@ for min in bins-*-min/*.zip; do
 
   rm -rf tmp
   mkdir tmp
-  (cd tmp && unzip ../$min)
-  (cd tmp && unzip ../$normal)
+  (cd tmp && unzip -o ../$min)
+  (cd tmp && unzip -o ../$normal)
   (cd tmp && 7z a ../dist/$dir.zip $dir/)
   rm $min $normal
 done
