@@ -14,15 +14,20 @@ set -ex
 build=$1
 target=$2
 
+# Default build flags for release artifacts. Leave debugging for
+# builds-from-source which have richer information anyway, and additionally the
+# CLI won't benefit from catching unwinds and neither will the C API so use
+# panic=abort in both situations.
+export CARGO_PROFILE_RELEASE_STRIP=debuginfo
+export CARGO_PROFILE_RELEASE_PANIC=abort
+
 if [[ "$build" = *-min ]]; then
   # Configure a whole bunch of compile-time options which help reduce the size
   # of the binary artifact produced.
-  export CARGO_PROFILE_RELEASE_STRIP=debuginfo
   export CARGO_PROFILE_RELEASE_OPT_LEVEL=s
   export RUSTFLAGS=-Zlocation-detail=none
   export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
   export CARGO_PROFILE_RELEASE_LTO=true
-  export CARGO_PROFILE_RELEASE_PANIC=abort
   flags="-Zbuild-std=std,panic_abort --no-default-features -Zbuild-std-features="
 else
   # For release builds the CLI is built a bit more feature-ful than the Cargo
