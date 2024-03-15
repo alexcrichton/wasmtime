@@ -2303,6 +2303,7 @@ for_each_function_signature!(impl_into_func);
 #[doc(hidden)]
 pub enum HostContext {
     Native(StoreBox<VMNativeCallHostFuncContext>),
+    #[cfg(any(feature = "cranelift", feature = "winch"))]
     Array(StoreBox<VMArrayCallHostFuncContext>),
 }
 

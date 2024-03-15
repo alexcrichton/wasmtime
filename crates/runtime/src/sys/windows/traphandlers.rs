@@ -1,4 +1,4 @@
-use crate::traphandlers::{tls, TrapTest};
+use crate::traphandlers::{tls, FaultDesc, TrapTest};
 use crate::VMContext;
 use std::io;
 use windows_sys::Win32::Foundation::*;
@@ -71,9 +71,11 @@ unsafe extern "system" fn exception_handler(exception_info: *mut EXCEPTION_POINT
             if #[cfg(target_arch = "x86_64")] {
                 let ip = (*(*exception_info).ContextRecord).Rip as *const u8;
                 let fp = (*(*exception_info).ContextRecord).Rbp as usize;
+                let sp = (*(*exception_info).ContextRecord).Rsp as usize;
             } else if #[cfg(target_arch = "aarch64")] {
                 let ip = (*(*exception_info).ContextRecord).Pc as *const u8;
                 let fp = (*(*exception_info).ContextRecord).Anonymous.Anonymous.Fp as usize;
+                let sp = (*(*exception_info).ContextRecord).Sp as usize;
             } else {
                 compile_error!("unsupported platform");
             }
@@ -82,17 +84,17 @@ unsafe extern "system" fn exception_handler(exception_info: *mut EXCEPTION_POINT
         // an indicator as to whether the fault was a read/write. The second
         // element is the address of the inaccessible data causing this
         // violation.
-        let faulting_addr = if record.ExceptionCode == EXCEPTION_ACCESS_VIOLATION {
+        let fault = if record.ExceptionCode == EXCEPTION_ACCESS_VIOLATION {
             assert!(record.NumberParameters >= 2);
-            Some(record.ExceptionInformation[1])
+            FaultDesc::from_fault(sp, record.ExceptionInformation[1])
         } else {
-            None
+            FaultDesc::None
         };
-        match info.test_if_trap(ip, |handler| handler(exception_info)) {
+        match info.test_if_trap(ip, &fault, |handler| handler(exception_info)) {
             TrapTest::NotWasm => ExceptionContinueSearch,
             TrapTest::HandledByEmbedder => ExceptionContinueExecution,
             TrapTest::Trap { jmp_buf, trap } => {
-                info.set_jit_trap(ip, fp, faulting_addr, trap);
+                info.set_jit_trap(ip, fp, fault, trap);
                 wasmtime_longjmp(jmp_buf)
             }
         }

@@ -34,7 +34,7 @@
 #![allow(non_snake_case, clippy::cast_sign_loss)]
 
 use crate::sys::traphandlers::wasmtime_longjmp;
-use crate::traphandlers::tls;
+use crate::traphandlers::{tls, FaultDesc};
 use mach2::exc::*;
 use mach2::exception_types::*;
 use mach2::kern_return::*;
@@ -228,12 +228,13 @@ unsafe fn handle_exception(request: &mut ExceptionRequest) -> bool {
 
             let thread_state_flavor = x86_THREAD_STATE64;
 
-            let get_pc_and_fp = |state: &ThreadState| (
+            let get_pc_fp_sp = |state: &ThreadState| (
                 state.__rip as *const u8,
                 state.__rbp as usize,
+                state.__rsp as usize,
             );
 
-            let resume = |state: &mut ThreadState, pc: usize, fp: usize, fault1: usize, fault2: usize, trap: Trap| {
+            let resume = |state: &mut ThreadState, pc: usize, fp: usize, fault1: usize, fault2: usize, trap: Trap, sp: usize| {
                 // The x86_64 ABI requires a 16-byte stack alignment for
                 // functions, so typically we'll be 16-byte aligned. In this
                 // case we simulate a `call` instruction by decrementing the
@@ -253,6 +254,7 @@ unsafe fn handle_exception(request: &mut ExceptionRequest) -> bool {
                 // the stack frame by overwriting %rip. This technically loses
                 // the precise frame that was interrupted, but that's probably
                 // not the end of the world anyway.
+                state.__rsp = sp;
                 if state.__rsp % 16 == 0 {
                     state.__rsp -= 8;
                     *(state.__rsp as *mut u64) = state.__rip;
@@ -270,12 +272,13 @@ unsafe fn handle_exception(request: &mut ExceptionRequest) -> bool {
 
             let thread_state_flavor = ARM_THREAD_STATE64;
 
-            let get_pc_and_fp = |state: &ThreadState| (
+            let get_pc_fp_sp = |state: &ThreadState| (
                 state.__pc as *const u8,
                 state.__fp as usize,
+                state.__sp as usize,
             );
 
-            let resume = |state: &mut ThreadState, pc: usize, fp: usize, fault1: usize, fault2: usize, trap: Trap| {
+            let resume = |state: &mut ThreadState, pc: usize, fp: usize, fault1: usize, fault2: usize, trap: Trap, sp: usize| {
                 // Clobber LR with the faulting PC, so unwinding resumes at the
                 // faulting instruction. The previous value of LR has been saved
                 // by the callee (in Cranelift generated code), so no need to
@@ -290,6 +293,7 @@ unsafe fn handle_exception(request: &mut ExceptionRequest) -> bool {
                 state.__x[3] = fault2 as u64;
                 state.__x[4] = trap as u64;
                 state.__pc = unwind as u64;
+                state.__sp = sp as u64;
             };
             let mut thread_state = mem::zeroed::<ThreadState>();
         } else {
@@ -324,21 +328,33 @@ unsafe fn handle_exception(request: &mut ExceptionRequest) -> bool {
     // Finally our indirection with a pointer means that we can read the
     // pointer value and if `MAP` changes happen after we read our entry that's
     // ok since they won't invalidate our entry.
-    let (pc, fp) = get_pc_and_fp(&thread_state);
-    let trap = match crate::traphandlers::GET_WASM_TRAP(pc as usize) {
+    let (pc, fp, sp) = get_pc_fp_sp(&thread_state);
+    let fault = match faulting_addr {
+        Some(addr) => FaultDesc::from_fault(sp, addr),
+        None => FaultDesc::None,
+    };
+    let trap = match crate::traphandlers::GET_WASM_TRAP(pc as usize, &fault) {
         Some(trap) => trap,
         None => return false,
+    };
+
+    let sp = if matches!(fault, FaultDesc::StackOverflow(_)) {
+        sp + crate::page_size()
+    } else {
+        sp
     };
 
     // We have determined that this is a wasm trap and we need to actually
     // force the thread itself to trap. The thread's register state is
     // configured to resume in the `unwind` function below, we update the
     // thread's register state, and then we're off to the races.
-    let (fault1, fault2) = match faulting_addr {
-        None => (0, 0),
-        Some(addr) => (1, addr),
+    // TODO: comment sp + page_size
+    let (fault1, fault2, sp) = match fault {
+        FaultDesc::StackOverflow(addr) => (0, addr, sp + crate::page_size()),
+        FaultDesc::Address(addr) => (1, addr, sp),
+        FaultDesc::None => (0, 0, sp),
     };
-    resume(&mut thread_state, pc as usize, fp, fault1, fault2, trap);
+    resume(&mut thread_state, pc as usize, fp, fault1, fault2, trap, sp);
     let kret = thread_set_state(
         origin_thread,
         thread_state_flavor,
@@ -364,12 +380,13 @@ unsafe extern "C" fn unwind(
 ) -> ! {
     let jmp_buf = tls::with(|state| {
         let state = state.unwrap();
-        let faulting_addr = match fault1 {
-            0 => None,
-            _ => Some(fault2),
+        let fault = match fault1 {
+            0 => FaultDesc::StackOverflow(fault2),
+            1 => FaultDesc::Address(fault2),
+            _ => FaultDesc::None,
         };
         let trap = Trap::from_u8(trap).unwrap();
-        state.set_jit_trap(wasm_pc, wasm_fp, faulting_addr, trap);
+        state.set_jit_trap(wasm_pc, wasm_fp, fault, trap);
         state.take_jmp_buf()
     });
     debug_assert!(!jmp_buf.is_null());

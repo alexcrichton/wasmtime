@@ -154,58 +154,6 @@ impl wasmtime_environ::Compiler for Compiler {
         let mut func_env =
             FuncEnvironment::new(isa, translation, types, &self.tunables, self.wmemcheck);
 
-        // The `stack_limit` global value below is the implementation of stack
-        // overflow checks in Wasmtime.
-        //
-        // The Wasm spec defines that stack overflows will raise a trap, and
-        // there's also an added constraint where as an embedder you frequently
-        // are running host-provided code called from wasm. WebAssembly and
-        // native code currently share the same call stack, so Wasmtime needs to
-        // make sure that host-provided code will have enough call-stack
-        // available to it.
-        //
-        // The way that stack overflow is handled here is by adding a prologue
-        // check to all functions for how much native stack is remaining. The
-        // `VMContext` pointer is the first argument to all functions, and the
-        // first field of this structure is `*const VMRuntimeLimits` and the
-        // first field of that is the stack limit. Note that the stack limit in
-        // this case means "if the stack pointer goes below this, trap". Each
-        // function which consumes stack space or isn't a leaf function starts
-        // off by loading the stack limit, checking it against the stack
-        // pointer, and optionally traps.
-        //
-        // This manual check allows the embedder to give wasm a relatively
-        // precise amount of stack allocation. Using this scheme we reserve a
-        // chunk of stack for wasm code relative from where wasm code was
-        // called. This ensures that native code called by wasm should have
-        // native stack space to run, and the numbers of stack spaces here
-        // should all be configurable for various embeddings.
-        //
-        // Note that this check is independent of each thread's stack guard page
-        // here. If the stack guard page is reached that's still considered an
-        // abort for the whole program since the runtime limits configured by
-        // the embedder should cause wasm to trap before it reaches that
-        // (ensuring the host has enough space as well for its functionality).
-        let vmctx = context
-            .func
-            .create_global_value(ir::GlobalValueData::VMContext);
-        let interrupts_ptr = context.func.create_global_value(ir::GlobalValueData::Load {
-            base: vmctx,
-            offset: i32::try_from(func_env.offsets.vmctx_runtime_limits())
-                .unwrap()
-                .into(),
-            global_type: isa.pointer_type(),
-            flags: MemFlags::trusted().with_readonly(),
-        });
-        let stack_limit = context.func.create_global_value(ir::GlobalValueData::Load {
-            base: interrupts_ptr,
-            offset: i32::try_from(func_env.offsets.ptr.vmruntime_limits_stack_limit())
-                .unwrap()
-                .into(),
-            global_type: isa.pointer_type(),
-            flags: MemFlags::trusted(),
-        });
-        context.func.stack_limit = Some(stack_limit);
         let FunctionBodyData { validator, body } = input;
         let mut validator =
             validator.into_validator(mem::take(&mut compiler.cx.validator_allocations));
@@ -392,6 +340,7 @@ impl wasmtime_environ::Compiler for Compiler {
             caller_vmctx,
             i32::try_from(ptr.vmcontext_runtime_limits()).unwrap(),
         );
+        trap_if_out_of_stack(&mut builder, pointer_type, &ptr, limits);
         save_last_wasm_exit_fp_and_pc(&mut builder, pointer_type, &ptr, limits);
 
         // If the native call signature for this function uses a return pointer
@@ -491,26 +440,36 @@ impl wasmtime_environ::Compiler for Compiler {
         host_fn: usize,
         obj: &mut Object<'static>,
     ) -> Result<(FunctionLoc, FunctionLoc)> {
-        let mut wasm_to_array = self.wasm_to_array_trampoline(ty, host_fn)?;
-        let mut native_to_array = self.native_to_array_trampoline(ty, host_fn)?;
+        let wasm_to_array = self.wasm_to_array_trampoline(ty, host_fn)?;
+        let native_to_array = self.native_to_array_trampoline(ty, host_fn)?;
 
+        let mut traps = TrapEncodingBuilder::default();
         let mut builder = ModuleTextBuilder::new(obj, self, self.isa.text_section_builder(2));
 
-        let (_, wasm_to_array) =
-            builder.append_func("wasm_to_array", &mut wasm_to_array, |_| unreachable!());
-        let (_, native_to_array) =
-            builder.append_func("native_to_array", &mut native_to_array, |_| unreachable!());
+        let (_, wasm_to_array_range) =
+            builder.append_func("wasm_to_array", &wasm_to_array, |_| unreachable!());
+        let (_, native_to_array_range) =
+            builder.append_func("native_to_array", &native_to_array, |_| unreachable!());
+        traps.push(
+            wasm_to_array_range.clone(),
+            &wasm_to_array.traps().collect::<Vec<_>>(),
+        );
+        traps.push(
+            native_to_array_range.clone(),
+            &native_to_array.traps().collect::<Vec<_>>(),
+        );
 
         let wasm_to_array = FunctionLoc {
-            start: u32::try_from(wasm_to_array.start).unwrap(),
-            length: u32::try_from(wasm_to_array.end - wasm_to_array.start).unwrap(),
+            start: u32::try_from(wasm_to_array_range.start).unwrap(),
+            length: u32::try_from(wasm_to_array_range.end - wasm_to_array_range.start).unwrap(),
         };
         let native_to_array = FunctionLoc {
-            start: u32::try_from(native_to_array.start).unwrap(),
-            length: u32::try_from(native_to_array.end - native_to_array.start).unwrap(),
+            start: u32::try_from(native_to_array_range.start).unwrap(),
+            length: u32::try_from(native_to_array_range.end - native_to_array_range.start).unwrap(),
         };
 
         builder.finish();
+        traps.append_to(obj);
         Ok((wasm_to_array, native_to_array))
     }
 
@@ -654,6 +613,7 @@ impl wasmtime_environ::Compiler for Compiler {
             vmctx,
             ptr_size.vmcontext_runtime_limits(),
         );
+        trap_if_out_of_stack(&mut builder, pointer_type, &ptr_size, limits);
         save_last_wasm_exit_fp_and_pc(&mut builder, pointer_type, &ptr_size, limits);
 
         // Now it's time to delegate to the actual builtin. Builtins are stored
@@ -1077,6 +1037,7 @@ impl Compiler {
             caller_vmctx,
             ptr_size.vmcontext_runtime_limits(),
         );
+        trap_if_out_of_stack(&mut builder, pointer_type, &ptr_size, limits);
         save_last_wasm_exit_fp_and_pc(&mut builder, pointer_type, &ptr_size, limits);
 
         let (values_vec_ptr, values_vec_len) =
@@ -1494,6 +1455,25 @@ fn save_last_wasm_exit_fp_and_pc(
         limits,
         ptr.vmruntime_limits_last_wasm_exit_pc(),
     );
+}
+
+fn trap_if_out_of_stack(
+    builder: &mut FunctionBuilder,
+    pointer_type: ir::Type,
+    ptr: &impl PtrSize,
+    limits: Value,
+) {
+    let trampoline_sp = builder.ins().get_stack_pointer(pointer_type);
+    let limit = builder.ins().load(
+        pointer_type,
+        MemFlags::trusted(),
+        limits,
+        ptr.vmruntime_limits_stack_limit(),
+    );
+    let cmp = builder
+        .ins()
+        .icmp(ir::condcodes::IntCC::SignedLessThan, trampoline_sp, limit);
+    builder.ins().trapnz(cmp, ir::TrapCode::StackOverflow);
 }
 
 enum NativeRet {

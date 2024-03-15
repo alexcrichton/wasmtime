@@ -11,7 +11,7 @@ use std::{
     ptr::NonNull,
     sync::{Arc, RwLock},
 };
-use wasmtime_runtime::{VMSharedTypeIndex, VMWasmCallFunction};
+use wasmtime_runtime::{FaultDesc, VMSharedTypeIndex, VMWasmCallFunction};
 
 /// Used for registering modules with a store.
 ///
@@ -254,7 +254,7 @@ type GlobalRegistry = BTreeMap<usize, (usize, Arc<CodeMemory>)>;
 
 /// Returns whether the `pc`, according to globally registered information,
 /// is a wasm trap or not.
-pub fn get_wasm_trap(pc: usize) -> Option<Trap> {
+pub fn get_wasm_trap(pc: usize, fault: &FaultDesc) -> Option<Trap> {
     let (code, text_offset) = {
         let all_modules = GLOBAL_CODE.read().unwrap();
 
@@ -268,7 +268,12 @@ pub fn get_wasm_trap(pc: usize) -> Option<Trap> {
         (module.clone(), pc - *start)
     };
 
-    wasmtime_environ::lookup_trap_code(code.trap_data(), text_offset)
+    match fault {
+        FaultDesc::Address(_) | FaultDesc::None => {
+            wasmtime_environ::lookup_trap_code(code.trap_data(), text_offset)
+        }
+        FaultDesc::StackOverflow(_) => Some(Trap::StackOverflow),
+    }
 }
 
 /// Registers a new region of code.

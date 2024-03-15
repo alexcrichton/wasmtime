@@ -1,6 +1,6 @@
 //! Trap handling on Unix based on POSIX signals.
 
-use crate::traphandlers::{tls, TrapTest};
+use crate::traphandlers::{tls, FaultDesc, TrapTest};
 use crate::VMContext;
 use std::cell::RefCell;
 use std::io;
@@ -110,8 +110,15 @@ unsafe extern "C" fn trap_handler(
         // Otherwise flag ourselves as handling a trap, do the trap
         // handling, and reset our trap handling flag. Then we figure
         // out what to do based on the result of the trap handling.
-        let (pc, fp) = get_pc_and_fp(context, signum);
-        let test = info.test_if_trap(pc, |handler| handler(signum, siginfo, context));
+        let (pc, fp, sp) = get_pc_fp_sp(context, signum);
+        let fault = match signum {
+            libc::SIGSEGV | libc::SIGBUS => {
+                let addr = (*siginfo).si_addr() as usize;
+                FaultDesc::from_fault(sp, addr)
+            }
+            _ => FaultDesc::None,
+        };
+        let test = info.test_if_trap(pc, &fault, |handler| handler(signum, siginfo, context));
 
         // Figure out what to do based on the result of this handling of
         // the trap. Note that our sentinel value of 1 means that the
@@ -122,11 +129,7 @@ unsafe extern "C" fn trap_handler(
             TrapTest::HandledByEmbedder => return true,
             TrapTest::Trap { jmp_buf, trap } => (jmp_buf, trap),
         };
-        let faulting_addr = match signum {
-            libc::SIGSEGV | libc::SIGBUS => Some((*siginfo).si_addr() as usize),
-            _ => None,
-        };
-        info.set_jit_trap(pc, fp, faulting_addr, trap);
+        info.set_jit_trap(pc, fp, fault, trap);
         // On macOS this is a bit special, unfortunately. If we were to
         // `siglongjmp` out of the signal handler that notably does
         // *not* reset the sigaltstack state of our signal handler. This
@@ -191,19 +194,21 @@ unsafe extern "C" fn trap_handler(
     }
 }
 
-unsafe fn get_pc_and_fp(cx: *mut libc::c_void, _signum: libc::c_int) -> (*const u8, usize) {
+unsafe fn get_pc_fp_sp(cx: *mut libc::c_void, _signum: libc::c_int) -> (*const u8, usize, usize) {
     cfg_if::cfg_if! {
         if #[cfg(all(any(target_os = "linux", target_os = "android"), target_arch = "x86_64"))] {
             let cx = &*(cx as *const libc::ucontext_t);
             (
                 cx.uc_mcontext.gregs[libc::REG_RIP as usize] as *const u8,
-                cx.uc_mcontext.gregs[libc::REG_RBP as usize] as usize
+                cx.uc_mcontext.gregs[libc::REG_RBP as usize] as usize,
+                cx.uc_mcontext.gregs[libc::REG_RSP as usize] as usize,
             )
         } else if #[cfg(all(any(target_os = "linux", target_os = "android"), target_arch = "aarch64"))] {
             let cx = &*(cx as *const libc::ucontext_t);
             (
                 cx.uc_mcontext.pc as *const u8,
                 cx.uc_mcontext.regs[29] as usize,
+                cx.uc_mcontext.sp as usize,
             )
         } else if #[cfg(all(target_os = "linux", target_arch = "s390x"))] {
             // On s390x, SIGILL and SIGFPE are delivered with the PSW address
@@ -230,30 +235,35 @@ unsafe fn get_pc_and_fp(cx: *mut libc::c_void, _signum: libc::c_int) -> (*const 
             (
                 (*cx.uc_mcontext).__ss.__rip as *const u8,
                 (*cx.uc_mcontext).__ss.__rbp as usize,
+                (*cx.uc_mcontext).__ss.__rsp as usize,
             )
         } else if #[cfg(all(target_os = "macos", target_arch = "aarch64"))] {
             let cx = &*(cx as *const libc::ucontext_t);
             (
                 (*cx.uc_mcontext).__ss.__pc as *const u8,
                 (*cx.uc_mcontext).__ss.__fp as usize,
+                (*cx.uc_mcontext).__ss.__sp as usize,
             )
         } else if #[cfg(all(target_os = "freebsd", target_arch = "x86_64"))] {
             let cx = &*(cx as *const libc::ucontext_t);
             (
                 cx.uc_mcontext.mc_rip as *const u8,
                 cx.uc_mcontext.mc_rbp as usize,
+                cx.uc_mcontext.mc_rsp as usize,
             )
         } else if #[cfg(all(target_os = "linux", target_arch = "riscv64"))] {
             let cx = &*(cx as *const libc::ucontext_t);
             (
                 cx.uc_mcontext.__gregs[libc::REG_PC] as *const u8,
                 cx.uc_mcontext.__gregs[libc::REG_S0] as usize,
+                cx.uc_mcontext.__gregs[libc::REG_SP] as usize,
             )
         } else if #[cfg(all(target_os = "freebsd", target_arch = "aarch64"))] {
             let cx = &*(cx as *const libc::mcontext_t);
             (
                 cx.mc_gpregs.gp_elr as *const u8,
                 cx.mc_gpregs.gp_x[29] as usize,
+                cx.mc_gpregs.gp_sp as usize,
             )
         }
         else {

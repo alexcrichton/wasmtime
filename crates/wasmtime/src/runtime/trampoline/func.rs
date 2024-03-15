@@ -5,18 +5,24 @@ use crate::{code_memory::CodeMemory, Engine, FuncType, ValRaw};
 use anyhow::Result;
 use std::panic::{self, AssertUnwindSafe};
 use std::ptr::NonNull;
+use std::sync::Arc;
 use wasmtime_runtime::{
     StoreBox, VMArrayCallHostFuncContext, VMContext, VMFuncRef, VMOpaqueContext,
 };
 
 struct TrampolineState<F> {
     func: F,
-    #[allow(dead_code)]
-    code_memory: CodeMemory,
+    code_memory: Arc<CodeMemory>,
 
     // Need to keep our `VMSharedTypeIndex` registered in the engine.
     #[allow(dead_code)]
     sig: RegisteredType,
+}
+
+impl<F> Drop for TrampolineState<F> {
+    fn drop(&mut self) {
+        crate::module::unregister_code(&self.code_memory);
+    }
 }
 
 /// Shim to call a host-defined function that uses the array calling convention.
@@ -105,6 +111,8 @@ where
     // also take care of unwind table registration.
     let mut code_memory = CodeMemory::new(obj)?;
     code_memory.publish()?;
+    let code_memory = Arc::new(code_memory);
+    crate::module::register_code(&code_memory);
 
     engine
         .profiler()

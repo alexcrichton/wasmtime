@@ -7,6 +7,7 @@ use std::fmt;
 use wasmtime_environ::{
     demangle_function_name, demangle_function_name_or_index, EntityRef, FilePos,
 };
+use wasmtime_runtime::FaultDesc;
 
 /// Representation of a WebAssembly trap and what caused it to occur.
 ///
@@ -111,7 +112,7 @@ pub(crate) fn from_runtime_box(
         }
         wasmtime_runtime::TrapReason::Jit {
             pc,
-            faulting_addr,
+            fault_desc,
             trap,
         } => {
             let mut err: Error = trap.into();
@@ -120,8 +121,13 @@ pub(crate) fn from_runtime_box(
             // then simultaneously assert that it's within a known linear memory
             // and additionally translate it to a wasm-local address to be added
             // as context to the error.
-            if let Some(fault) = faulting_addr.and_then(|addr| store.wasm_fault(pc, addr)) {
-                err = err.context(fault);
+            match fault_desc {
+                FaultDesc::Address(addr) => {
+                    if let Some(fault) = store.wasm_fault(pc, addr) {
+                        err = err.context(fault);
+                    }
+                }
+                FaultDesc::StackOverflow(_) | FaultDesc::None => {}
             }
             (err, Some(pc))
         }

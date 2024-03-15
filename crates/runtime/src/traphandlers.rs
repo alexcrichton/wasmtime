@@ -30,7 +30,8 @@ pub use traphandlers::SignalHandler;
 ///
 /// This is initialized during `init_traps` below. The definition lives within
 /// `wasmtime` currently.
-pub(crate) static mut GET_WASM_TRAP: fn(usize) -> Option<wasmtime_environ::Trap> = |_| None;
+pub(crate) static mut GET_WASM_TRAP: fn(usize, &FaultDesc) -> Option<wasmtime_environ::Trap> =
+    |_, _| None;
 
 /// This function is required to be called before any WebAssembly is entered.
 /// This will configure global state such as signal handlers to prepare the
@@ -46,7 +47,7 @@ pub(crate) static mut GET_WASM_TRAP: fn(usize) -> Option<wasmtime_environ::Trap>
 /// to disambiguate faults that happen due to wasm and faults that happen due to
 /// bugs in Rust or elsewhere.
 pub fn init_traps(
-    get_wasm_trap: fn(usize) -> Option<wasmtime_environ::Trap>,
+    get_wasm_trap: fn(usize, &FaultDesc) -> Option<wasmtime_environ::Trap>,
     macos_use_mach_ports: bool,
 ) {
     static INIT: Once = Once::new();
@@ -165,7 +166,7 @@ pub enum TrapReason {
         /// explicitly jump to a `ud2` instruction. This is only available for
         /// fault-based traps which are one of the main ways, but not the only
         /// way, to run wasm.
-        faulting_addr: Option<usize>,
+        fault_desc: FaultDesc,
 
         /// The trap code associated with this trap.
         trap: wasmtime_environ::Trap,
@@ -224,6 +225,30 @@ pub(crate) enum TrapTest {
         /// The trap code of this trap.
         trap: wasmtime_environ::Trap,
     },
+}
+
+/// TODO
+#[derive(Debug)]
+pub enum FaultDesc {
+    /// TODO
+    Address(usize),
+    /// TODO
+    StackOverflow(usize),
+    /// TODO
+    None,
+}
+
+impl FaultDesc {
+    pub(crate) fn from_fault(sp: usize, faulting_addr: usize) -> FaultDesc {
+        let sp = sp - 16; // TODO: comment subtraction
+
+        // TODO: comment equality
+        if faulting_addr >= sp && faulting_addr - sp <= crate::page_size() {
+            FaultDesc::StackOverflow(faulting_addr)
+        } else {
+            FaultDesc::Address(faulting_addr)
+        }
+    }
 }
 
 /// Catches any wasm traps that happen within the execution of `closure`,
@@ -441,6 +466,7 @@ impl CallThreadState {
     pub(crate) fn test_if_trap(
         &self,
         pc: *const u8,
+        fault: &FaultDesc,
         call_handler: impl Fn(&SignalHandler) -> bool,
     ) -> TrapTest {
         // If we haven't even started to handle traps yet, bail out.
@@ -458,7 +484,7 @@ impl CallThreadState {
         }
 
         // If this fault wasn't in wasm code, then it's not our problem
-        let trap = match unsafe { GET_WASM_TRAP(pc as usize) } {
+        let trap = match unsafe { GET_WASM_TRAP(pc as usize, fault) } {
             Some(trap) => trap,
             None => return TrapTest::NotWasm,
         };
@@ -480,7 +506,7 @@ impl CallThreadState {
         &self,
         pc: *const u8,
         fp: usize,
-        faulting_addr: Option<usize>,
+        fault_desc: FaultDesc,
         trap: wasmtime_environ::Trap,
     ) {
         let backtrace = self.capture_backtrace(self.limits, Some((pc as usize, fp)));
@@ -489,7 +515,7 @@ impl CallThreadState {
             (*self.unwind.get()).as_mut_ptr().write((
                 UnwindReason::Trap(TrapReason::Jit {
                     pc: pc as usize,
-                    faulting_addr,
+                    fault_desc,
                     trap,
                 }),
                 backtrace,
