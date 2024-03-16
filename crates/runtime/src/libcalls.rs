@@ -757,4 +757,8 @@ pub mod relocs {
             .reg
         }
     }
+
+    pub extern "C" fn stack_limit() -> usize {
+        crate::traphandlers::current_stack_limit()
+    }
 }

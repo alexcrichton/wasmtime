@@ -154,6 +154,16 @@ macro_rules! libcalls {
                     $(LibCall::$rust => $sym,)*
                 }
             }
+
+            /// Convert from a libcall's discriminant back to a libcall.
+            pub fn from_u32(n: u32) -> Option<LibCall> {
+                $(
+                    if n == LibCall::$rust as u32 {
+                        return Some(LibCall::$rust);
+                    }
+                )*
+                None
+            }
         }
     )
 }
@@ -170,4 +180,6 @@ libcalls! {
     FmaF32 = "libcall_fmaf32"
     FmaF64 = "libcall_fmaf64"
     X86Pshufb = "libcall_x86_pshufb"
+    ConsumeStack = "libcall_consume_stack"
+    StackLimit = "libcall_stack_limit"
 }

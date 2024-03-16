@@ -52,6 +52,8 @@ pub enum RelocationTarget {
     Builtin(BuiltinFunctionIndex),
     /// A compiler-generated libcall.
     HostLibcall(obj::LibCall),
+    /// TODO
+    LibcallTrampoline(obj::LibCall),
 }
 
 /// Implementation of an incremental compilation's key/value cache store.
@@ -215,6 +217,12 @@ pub trait Compiler: Send + Sync {
     fn compile_wasm_to_builtin(
         &self,
         index: BuiltinFunctionIndex,
+    ) -> Result<Box<dyn Any + Send>, CompileError>;
+
+    /// TODO
+    fn compile_wasm_to_libcall(
+        &self,
+        libcall: obj::LibCall,
     ) -> Result<Box<dyn Any + Send>, CompileError>;
 
     /// Returns the list of relocations required for a function from one of the

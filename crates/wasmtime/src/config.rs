@@ -1828,6 +1828,10 @@ impl Config {
             .settings
             .insert("probestack_strategy".into(), "inline".into());
 
+        self.compiler_config
+            .settings
+            .insert("use_colocated_libcalls".into(), "true".into());
+
         let host = target_lexicon::Triple::host();
         let target = self
             .compiler_config

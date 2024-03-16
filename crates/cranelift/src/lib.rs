@@ -217,6 +217,16 @@ pub const NS_WASM_FUNC: u32 = 0;
 /// function through an indirect function call loaded by the `VMContext`.
 pub const NS_WASMTIME_BUILTIN: u32 = 1;
 
+/// Namespace for the actual implementation of host libcalls (not builtins).
+/// This is used to generate a real relocation in the final output that's
+/// resolved when the module is loaded.
+pub const NS_HOST_LIBCALL: u32 = 2;
+
+/// Namespace for libcall trampolines which are called whenever cranelift emits
+/// a call to a libcall. These trampolines then refer to he real host libcall
+/// via `NS_HOST_LIBCALL_IMPL`.
+pub const NS_LIBCALL_TRAMPOLINE: u32 = 3;
+
 /// A record of a relocation to perform.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Relocation {
@@ -312,12 +322,18 @@ fn mach_reloc_to_reloc(
                 NS_WASMTIME_BUILTIN => {
                     RelocationTarget::Builtin(BuiltinFunctionIndex::from_u32(name.index))
                 }
+                NS_HOST_LIBCALL => RelocationTarget::HostLibcall(
+                    wasmtime_environ::obj::LibCall::from_u32(name.index).unwrap(),
+                ),
+                NS_LIBCALL_TRAMPOLINE => RelocationTarget::LibcallTrampoline(
+                    wasmtime_environ::obj::LibCall::from_u32(name.index).unwrap(),
+                ),
                 _ => panic!("unknown namespace {}", name.namespace),
             }
         }
         FinalizedRelocTarget::ExternalName(ExternalName::LibCall(libcall)) => {
             let libcall = libcall_cranelift_to_wasmtime(libcall);
-            RelocationTarget::HostLibcall(libcall)
+            RelocationTarget::LibcallTrampoline(libcall)
         }
         _ => panic!("unrecognized external name"),
     };

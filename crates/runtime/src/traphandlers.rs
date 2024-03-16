@@ -520,6 +520,17 @@ impl CallThreadState {
     }
 }
 
+/// TODO
+pub fn current_stack_limit() -> usize {
+    tls::with(|state| {
+        let state = match state {
+            Some(state) => state,
+            None => return usize::MAX,
+        };
+        unsafe { *(*state.limits).stack_limit.get() }
+    })
+}
+
 // A private inner module for managing the TLS state that we require across
 // calls in wasm. The WebAssembly code is called from C++ and then a trap may
 // happen which requires us to read some contextual state to figure out what to

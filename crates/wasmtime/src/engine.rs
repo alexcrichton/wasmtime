@@ -286,7 +286,6 @@ impl Engine {
             // generated code.
             "enable_llvm_abi_extensions" => *value == FlagValue::Bool(false),
             "enable_pinned_reg" => *value == FlagValue::Bool(false),
-            "use_colocated_libcalls" => *value == FlagValue::Bool(false),
             "use_pinned_reg_as_heap_base" => *value == FlagValue::Bool(false),
 
             // If reference types (or anything that depends on reference types,
@@ -319,6 +318,7 @@ impl Engine {
             | "enable_float"
             | "enable_verifier"
             | "enable_pcc"
+            | "use_colocated_libcalls" // if this is a problem we'll find out with relocs
             | "regalloc_checker"
             | "regalloc_verbose_logs"
             | "is_pic"

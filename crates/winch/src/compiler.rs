@@ -6,6 +6,7 @@ use std::mem;
 use std::sync::Mutex;
 use wasmparser::FuncValidatorAllocations;
 use wasmtime_cranelift::{CompiledFunction, ModuleTextBuilder};
+use wasmtime_environ::obj::LibCall;
 use wasmtime_environ::{
     BuiltinFunctionIndex, CompileError, DefinedFuncIndex, FilePos, FunctionBodyData, FunctionLoc,
     ModuleTranslation, ModuleTypesBuilder, PrimaryMap, RelocationTarget, TrapEncodingBuilder,
@@ -239,5 +240,12 @@ impl wasmtime_environ::Compiler for Compiler {
         func: &'a dyn Any,
     ) -> Box<dyn Iterator<Item = RelocationTarget> + 'a> {
         self.trampolines.compiled_function_relocation_targets(func)
+    }
+
+    fn compile_wasm_to_libcall(
+        &self,
+        libcall: LibCall,
+    ) -> Result<Box<dyn Any + Send>, CompileError> {
+        self.trampolines.compile_wasm_to_libcall(libcall)
     }
 }

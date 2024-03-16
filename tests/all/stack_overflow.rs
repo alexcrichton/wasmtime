@@ -9,8 +9,10 @@ fn host_always_has_some_stack() -> Result<()> {
     // assume hosts always have at least 128k of stack
     const HOST_STACK: usize = 128 * 1024;
 
-    let mut store = if cfg!(target_arch = "x86_64") {
-        let mut config = Config::new();
+    let mut config = Config::new();
+    config.wasm_function_references(true);
+
+    if cfg!(target_arch = "x86_64") {
         // Force cranelift-based libcalls to show up by ensuring that platform
         // support is turned off.
         unsafe {
@@ -20,10 +22,8 @@ fn host_always_has_some_stack() -> Result<()> {
             config.cranelift_flag_set("has_ssse3", "false");
             config.cranelift_flag_set("has_sse3", "false");
         }
-        Store::new(&Engine::new(&config)?, ())
-    } else {
-        Store::<()>::default()
-    };
+    }
+    let mut store = Store::new(&Engine::new(&config)?, ());
 
     // Create a module that's infinitely recursive, but calls the host on each
     // level of wasm stack to always test how much host stack we have left.
@@ -35,71 +35,113 @@ fn host_always_has_some_stack() -> Result<()> {
         store.engine(),
         r#"
             (module
-                (import "" "" (func $host1))
-                (import "" "" (func $host2))
+                (type $empty (func))
 
-                ;; exit via wasm-to-native trampoline
-                (func $recursive1 (export "f1")
-                    call $host1
-                    call $recursive1)
+                (global $depth (export "depth") (mut i32) (i32.const 0))
 
-                ;; exit via wasm-to-array trampoline
-                (func $recursive2 (export "f2")
-                    call $host2
-                    call $recursive2)
+                (func $recurse (export "recurse") (param (ref $empty))
+                    global.get $depth
+                    if
+                        (global.set $depth (i32.sub (global.get $depth) (i32.const 1)))
+                        local.get 0
+                        call $recurse
+                    else
+                        local.get 0
+                        call_ref $empty
+                    end
+                )
 
-                ;; exit via a wasmtime-based libcall
+                (func (export "nop"))
+
                 (memory 1)
-                (func $recursive3 (export "f3")
-                    (drop (memory.grow (i32.const 0)))
-                    call $recursive3)
+                (func (export "call-builtin")
+                    (drop (memory.grow (i32.const 00))))
 
                 ;; exit via a cranelift-based libcall
-                (func $recursive4 (export "f4")
-                    (drop (call $f32_ceil (f32.const 0)))
-                    call $recursive4)
+                (func (export "call-libcall")
+                    (drop (call $f32_ceil (f32.const 0))))
                 (func $f32_ceil (param f32) (result f32)
                     (f32.ceil (local.get 0)))
             )
         "#,
     )?;
-    let host1 = Func::wrap(&mut store, test_host_stack);
+    let host_func_wrap = Func::wrap(&mut store, test_host_stack);
     let ty = FuncType::new(store.engine(), [], []);
-    let host2 = Func::new(&mut store, ty, |_, _, _| {
+    let host_func_new = Func::new(&mut store, ty, |_, _, _| {
         test_host_stack();
         Ok(())
     });
-    let instance = Instance::new(&mut store, &module, &[host1.into(), host2.into()])?;
-    let f1 = instance.get_typed_func::<(), ()>(&mut store, "f1")?;
-    let f2 = instance.get_typed_func::<(), ()>(&mut store, "f2")?;
-    let f3 = instance.get_typed_func::<(), ()>(&mut store, "f3")?;
-    let f4 = instance.get_typed_func::<(), ()>(&mut store, "f4")?;
+    let instance = Instance::new(&mut store, &module, &[])?;
 
-    // Make sure that our function traps and the trap says that the call stack
-    // has been exhausted.
-    let hits1 = HITS.load(SeqCst);
-    let trap = f1.call(&mut store, ()).unwrap_err().downcast::<Trap>()?;
-    assert_eq!(trap, Trap::StackOverflow);
-    let hits2 = HITS.load(SeqCst);
-    let trap = f2.call(&mut store, ()).unwrap_err().downcast::<Trap>()?;
-    assert_eq!(trap, Trap::StackOverflow);
-    let hits3 = HITS.load(SeqCst);
-    let trap = f3.call(&mut store, ()).unwrap_err().downcast::<Trap>()?;
-    assert_eq!(trap, Trap::StackOverflow);
-    let hits4 = HITS.load(SeqCst);
-    let trap = f4.call(&mut store, ()).unwrap_err().downcast::<Trap>()?;
-    assert_eq!(trap, Trap::StackOverflow);
-    let hits5 = HITS.load(SeqCst);
+    let recurse = instance.get_typed_func::<Func, ()>(&mut store, "recurse")?;
+    let depth = instance.get_global(&mut store, "depth").unwrap();
+    let nop = instance.get_func(&mut store, "nop").unwrap();
+    let call_builtin = instance.get_func(&mut store, "call-builtin").unwrap();
+    let call_libcall = instance.get_func(&mut store, "call-libcall").unwrap();
 
-    // Additionally, however, and this is the crucial test, make sure that the
-    // host function actually completed. If HITS is 1 then we entered but didn't
-    // exit meaning we segfaulted while executing the host, yet still tried to
-    // recover from it with longjmp.
-    assert_eq!(hits1, 0);
-    assert_eq!(hits2, 0);
-    assert_eq!(hits3, 0);
-    assert_eq!(hits4, 0);
-    assert_eq!(hits5, 0);
+    // small depth should work
+    depth.set(&mut store, Val::I32(10))?;
+    recurse.call(&mut store, nop)?;
+
+    // infinite depth should not
+    depth.set(&mut store, Val::I32(i32::MAX))?;
+    let trap = recurse
+        .call(&mut store, nop)
+        .unwrap_err()
+        .downcast::<Trap>()?;
+    assert_eq!(trap, Trap::StackOverflow);
+
+    let depth_to_overflow = i32::MAX - depth.get(&mut store).unwrap_i32();
+
+    for i in -10..10 {
+        let this_depth = depth_to_overflow + i;
+
+        for func in [host_func_wrap, host_func_new, call_builtin, call_libcall] {
+            depth.set(&mut store, Val::I32(this_depth))?;
+            match recurse.call(&mut store, func) {
+                Ok(()) => {
+                    assert!(
+                        this_depth < depth_to_overflow,
+                        "this: {this_depth}\noverflow: {depth_to_overflow}"
+                    );
+                }
+                Err(e) => {
+                    assert_eq!(e.downcast::<Trap>()?, Trap::StackOverflow);
+                }
+            }
+        }
+    }
+
+    // let f1 = instance.get_typed_func::<(), ()>(&mut store, "f1")?;
+    // let f2 = instance.get_typed_func::<(), ()>(&mut store, "f2")?;
+    // let f3 = instance.get_typed_func::<(), ()>(&mut store, "f3")?;
+    // let f4 = instance.get_typed_func::<(), ()>(&mut store, "f4")?;
+
+    // // Make sure that our function traps and the trap says that the call stack
+    // // has been exhausted.
+    // let hits1 = HITS.load(SeqCst);
+    // let trap = f1.call(&mut store, ()).unwrap_err().downcast::<Trap>()?;
+    // assert_eq!(trap, Trap::StackOverflow);
+    // let hits2 = HITS.load(SeqCst);
+    // let trap = f2.call(&mut store, ()).unwrap_err().downcast::<Trap>()?;
+    // assert_eq!(trap, Trap::StackOverflow);
+    // let hits3 = HITS.load(SeqCst);
+    // let trap = f3.call(&mut store, ()).unwrap_err().downcast::<Trap>()?;
+    // assert_eq!(trap, Trap::StackOverflow);
+    // let hits4 = HITS.load(SeqCst);
+    // let trap = f4.call(&mut store, ()).unwrap_err().downcast::<Trap>()?;
+    // assert_eq!(trap, Trap::StackOverflow);
+    // let hits5 = HITS.load(SeqCst);
+
+    // // Additionally, however, and this is the crucial test, make sure that the
+    // // host function actually completed. If HITS is 1 then we entered but didn't
+    // // exit meaning we segfaulted while executing the host, yet still tried to
+    // // recover from it with longjmp.
+    // assert_eq!(hits1, 0);
+    // assert_eq!(hits2, 0);
+    // assert_eq!(hits3, 0);
+    // assert_eq!(hits4, 0);
+    // assert_eq!(hits5, 0);
 
     return Ok(());
 

@@ -31,6 +31,7 @@ use std::{
 };
 #[cfg(feature = "component-model")]
 use wasmtime_environ::component::Translator;
+use wasmtime_environ::obj::LibCall;
 use wasmtime_environ::{
     BuiltinFunctionIndex, CompiledFunctionInfo, CompiledModuleInfo, Compiler, DefinedFuncIndex,
     FinishedObject, FunctionBodyData, ModuleEnvironment, ModuleInternedTypeIndex,
@@ -223,6 +224,7 @@ impl CompileKey {
     const NATIVE_TO_WASM_TRAMPOLINE_KIND: u32 = Self::new_kind(2);
     const WASM_TO_NATIVE_TRAMPOLINE_KIND: u32 = Self::new_kind(3);
     const WASM_TO_BUILTIN_TRAMPOLINE_KIND: u32 = Self::new_kind(4);
+    const LIBCALL_KIND: u32 = Self::new_kind(5);
 
     const fn new_kind(kind: u32) -> u32 {
         assert!(kind < (1 << Self::KIND_BITS));
@@ -268,12 +270,19 @@ impl CompileKey {
             index: index.index(),
         }
     }
+
+    fn libcall(index: LibCall) -> Self {
+        Self {
+            namespace: Self::LIBCALL_KIND,
+            index: index as u32,
+        }
+    }
 }
 
 #[cfg(feature = "component-model")]
 impl CompileKey {
-    const TRAMPOLINE_KIND: u32 = Self::new_kind(5);
-    const RESOURCE_DROP_WASM_TO_NATIVE_KIND: u32 = Self::new_kind(6);
+    const TRAMPOLINE_KIND: u32 = Self::new_kind(6);
+    const RESOURCE_DROP_WASM_TO_NATIVE_KIND: u32 = Self::new_kind(7);
 
     fn trampoline(index: wasmtime_environ::component::TrampolineIndex) -> Self {
         Self {
@@ -515,7 +524,7 @@ impl<'a> CompileInputs<'a> {
         // wasmtime-builtin functions are necessary. If so those need to be
         // collected and then those trampolines additionally need to be
         // compiled.
-        compile_required_builtins(engine, &mut raw_outputs)?;
+        compile_required_libcalls_and_builtins(engine, &mut raw_outputs)?;
 
         // Bucket the outputs by kind.
         let mut outputs: BTreeMap<u32, Vec<CompileOutput>> = BTreeMap::new();
@@ -526,10 +535,13 @@ impl<'a> CompileInputs<'a> {
         Ok(UnlinkedCompileOutputs { outputs })
     }
 }
-
-fn compile_required_builtins(engine: &Engine, raw_outputs: &mut Vec<CompileOutput>) -> Result<()> {
+fn compile_required_libcalls_and_builtins(
+    engine: &Engine,
+    raw_outputs: &mut Vec<CompileOutput>,
+) -> Result<()> {
     let compiler = engine.compiler();
     let mut builtins = HashSet::new();
+    let mut libcalls = HashSet::new();
     let mut new_inputs: Vec<CompileInput<'_>> = Vec::new();
 
     let compile_builtin = |builtin: BuiltinFunctionIndex| {
@@ -539,6 +551,18 @@ fn compile_required_builtins(engine: &Engine, raw_outputs: &mut Vec<CompileOutpu
                 key: CompileKey::wasm_to_builtin_trampoline(builtin),
                 symbol,
                 function: CompiledFunction::Function(compiler.compile_wasm_to_builtin(builtin)?),
+                info: None,
+            })
+        })
+    };
+
+    let compile_libcall_trampoline = |libcall: LibCall| {
+        Box::new(move |compiler: &dyn Compiler| {
+            let symbol = format!("libcall_trampoline_{}", libcall.symbol());
+            Ok(CompileOutput {
+                key: CompileKey::libcall(libcall),
+                symbol,
+                function: CompiledFunction::Function(compiler.compile_wasm_to_libcall(libcall)?),
                 info: None,
             })
         })
@@ -555,6 +579,15 @@ fn compile_required_builtins(engine: &Engine, raw_outputs: &mut Vec<CompileOutpu
                 RelocationTarget::Builtin(i) => {
                     if builtins.insert(i) {
                         new_inputs.push(compile_builtin(i));
+                    }
+                }
+                RelocationTarget::LibcallTrampoline(i) => {
+                    if libcalls.insert(i) {
+                        new_inputs.push(compile_libcall_trampoline(i));
+                    }
+                    // TODO: comment this
+                    if libcalls.insert(LibCall::ConsumeStack) {
+                        new_inputs.push(compile_libcall_trampoline(LibCall::ConsumeStack));
                     }
                 }
                 _ => {}
@@ -682,6 +715,9 @@ impl FunctionIndices {
                 RelocationTarget::HostLibcall(_) => {
                     unreachable!("relocation is resolved at runtime, not compile time");
                 }
+                RelocationTarget::LibcallTrampoline(libcall) => self.indices
+                    [&CompileKey::LIBCALL_KIND][&CompileKey::libcall(libcall)]
+                    .unwrap_function(),
             },
         )?;
 
@@ -727,6 +763,7 @@ impl FunctionIndices {
         // metadata generated below.
         self.indices
             .remove(&CompileKey::WASM_TO_BUILTIN_TRAMPOLINE_KIND);
+        self.indices.remove(&CompileKey::LIBCALL_KIND);
 
         // Finally, build our binary artifacts that map things like `FuncIndex`
         // to a function location and all of that using the indices we saved

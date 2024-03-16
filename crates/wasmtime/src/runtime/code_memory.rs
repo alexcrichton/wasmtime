@@ -293,6 +293,10 @@ impl CodeMemory {
                 obj::LibCall::X86Pshufb => libcalls::relocs::x86_pshufb as usize,
                 #[cfg(not(target_arch = "x86_64"))]
                 obj::LibCall::X86Pshufb => unreachable!(),
+                obj::LibCall::StackLimit => libcalls::relocs::stack_limit as usize,
+                obj::LibCall::ConsumeStack => {
+                    panic!("should be resolved at compile time");
+                }
             };
             self.mmap
                 .as_mut_ptr()

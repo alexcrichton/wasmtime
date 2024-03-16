@@ -13,7 +13,7 @@
 //! function body, the imported wasm function do not. The trampolines symbol
 //! names have format "_trampoline_N", where N is `SignatureIndex`.
 
-use crate::{CompiledFunction, RelocationTarget};
+use crate::CompiledFunction;
 use anyhow::Result;
 use cranelift_codegen::binemit::Reloc;
 use cranelift_codegen::isa::unwind::{systemv, UnwindInfo};
@@ -26,7 +26,7 @@ use object::{Architecture, SectionKind, SymbolFlags, SymbolKind, SymbolScope};
 use std::collections::HashMap;
 use std::ops::Range;
 use wasmtime_environ::obj::LibCall;
-use wasmtime_environ::Compiler;
+use wasmtime_environ::{Compiler, RelocationTarget};
 
 const TEXT_SECTION_NAME: &[u8] = b".text";
 
@@ -140,7 +140,9 @@ impl<'a> ModuleTextBuilder<'a> {
                 // resolve this relocation before we actually emit an object
                 // file, but if it can't handle it then we pass through the
                 // relocation.
-                RelocationTarget::Wasm(_) | RelocationTarget::Builtin(_) => {
+                RelocationTarget::Wasm(_)
+                | RelocationTarget::Builtin(_)
+                | RelocationTarget::LibcallTrampoline(_) => {
                     let target = resolve_reloc_target(r.reloc_target);
                     if self
                         .text

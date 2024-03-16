@@ -2,9 +2,11 @@ use crate::debug::{DwarfSectionRelocTarget, ModuleMemoryOffset};
 use crate::func_environ::FuncEnvironment;
 use crate::{array_call_signature, native_call_signature, DEBUG_ASSERT_TRAP_CODE};
 use crate::{builder::LinkOptions, value_type, wasm_call_signature, BuiltinFunctionSignatures};
-use crate::{CompiledFunction, ModuleTextBuilder};
+use crate::{CompiledFunction, ModuleTextBuilder, NS_HOST_LIBCALL, NS_LIBCALL_TRAMPOLINE};
 use anyhow::{Context as _, Result};
-use cranelift_codegen::ir::{self, InstBuilder, MemFlags, UserExternalName, UserFuncName, Value};
+use cranelift_codegen::ir::{
+    self, AbiParam, InstBuilder, MemFlags, UserExternalName, UserFuncName, Value,
+};
 use cranelift_codegen::isa::{
     unwind::{UnwindInfo, UnwindInfoKind},
     OwnedTargetIsa, TargetIsa,
@@ -26,6 +28,7 @@ use std::mem;
 use std::path;
 use std::sync::{Arc, Mutex};
 use wasmparser::{FuncValidatorAllocations, FunctionBody};
+use wasmtime_environ::obj::LibCall;
 use wasmtime_environ::{
     AddressMapSection, BuiltinFunctionIndex, CacheStore, CompileError, FlagValue, FunctionBodyData,
     FunctionLoc, ModuleTranslation, ModuleTypesBuilder, PtrSize, RelocationTarget,
@@ -687,6 +690,208 @@ impl wasmtime_environ::Compiler for Compiler {
     ) -> Box<dyn Iterator<Item = RelocationTarget> + 'a> {
         let func = func.downcast_ref::<CompiledFunction>().unwrap();
         Box::new(func.relocations().map(|r| r.reloc_target))
+    }
+
+    fn compile_wasm_to_libcall(
+        &self,
+        libcall: LibCall,
+    ) -> Result<Box<dyn Any + Send>, CompileError> {
+        const STACK_REQUIRED_FOR_STACK_LIMIT_LIBCALL: u32 = 64 * 1024;
+        const RECURSIONS: u32 = 4;
+
+        let isa = &*self.isa;
+        let pointer_type = isa.pointer_type();
+
+        // Helper function to create the signature for a particular libcall
+        let libcall_sig = |libcall: LibCall| {
+            let mut sig = ir::Signature {
+                params: Vec::new(),
+                returns: Vec::new(),
+                call_conv: isa.default_call_conv(),
+            };
+            match libcall {
+                LibCall::FloorF32 | LibCall::NearestF32 | LibCall::CeilF32 | LibCall::TruncF32 => {
+                    sig.params.push(AbiParam::new(ir::types::F32));
+                    sig.returns.push(AbiParam::new(ir::types::F32));
+                }
+                LibCall::FloorF64 | LibCall::NearestF64 | LibCall::CeilF64 | LibCall::TruncF64 => {
+                    sig.params.push(AbiParam::new(ir::types::F64));
+                    sig.returns.push(AbiParam::new(ir::types::F64));
+                }
+                LibCall::FmaF32 => {
+                    sig.params.push(AbiParam::new(ir::types::F32));
+                    sig.params.push(AbiParam::new(ir::types::F32));
+                    sig.params.push(AbiParam::new(ir::types::F32));
+                    sig.returns.push(AbiParam::new(ir::types::F32));
+                }
+                LibCall::FmaF64 => {
+                    sig.params.push(AbiParam::new(ir::types::F64));
+                    sig.params.push(AbiParam::new(ir::types::F64));
+                    sig.params.push(AbiParam::new(ir::types::F64));
+                    sig.returns.push(AbiParam::new(ir::types::F64));
+                }
+                LibCall::X86Pshufb => {
+                    sig.params.push(AbiParam::new(ir::types::I8X16));
+                    sig.params.push(AbiParam::new(ir::types::I8X16));
+                    sig.returns.push(AbiParam::new(ir::types::I8X16));
+                }
+                LibCall::ConsumeStack => {
+                    sig.params.push(AbiParam::new(ir::types::I32));
+                    sig.params.push(AbiParam::new(pointer_type));
+                    sig.returns.push(AbiParam::new(pointer_type));
+                }
+                LibCall::StackLimit => {
+                    sig.returns.push(AbiParam::new(pointer_type));
+                }
+            }
+            sig
+        };
+
+        // Helper function to declare a libcall in the `namespace` specified and
+        // return an `ir::FuncRef`.
+        let declare = |builder: &mut FunctionBuilder, namespace: u32, call: LibCall| {
+            let sig = libcall_sig(call);
+            let name = ir::ExternalName::User(builder.func.declare_imported_user_function(
+                ir::UserExternalName {
+                    namespace,
+                    index: call as u32,
+                },
+            ));
+            let signature = builder.func.import_signature(sig);
+            builder.func.dfg.ext_funcs.push(ir::ExtFuncData {
+                name,
+                signature,
+                colocated: namespace == NS_LIBCALL_TRAMPOLINE,
+            })
+        };
+
+        let mut compiler = self.function_compiler();
+        let func = ir::Function::with_name_signature(Default::default(), libcall_sig(libcall));
+        let (mut builder, block0) = compiler.builder(func);
+        match libcall {
+            // This libcall is special, it only exists to consume stack. It's
+            // called from other libcalls and does nothing but conditionally
+            // recurse on itself. Looks like:
+            //
+            // function %consume_stack(i32, ptr) -> ptr {
+            //      ss0 = explicit_slot $size
+            //
+            // entry(v0: i32, v1: ptr):
+            //      cmp = icmp_imm eq v0, 0
+            //      brif cmp, return_block, recurse_block
+            //
+            // return_block:
+            //      return v1
+            //
+            // recurse_block:
+            //      v2 = isub_imm v0, 1
+            //      v3 = stack_addr ss0
+            //      v4 = call %consume_stack(v2, v3)
+            //      return v4
+            // }
+            //
+            // This uses the first parameter as the recursion count. The second
+            // parameter is there to keep `ss0` alive and prevent it from being
+            // optimized out. This function will generate stack probes as
+            // necesssary to ensure that the stack size is used in its entirety.
+            LibCall::ConsumeStack => {
+                let slot = builder.func.create_sized_stack_slot(ir::StackSlotData::new(
+                    ir::StackSlotKind::ExplicitSlot,
+                    STACK_REQUIRED_FOR_STACK_LIMIT_LIBCALL / RECURSIONS,
+                ));
+                let &[remaining, prev_ptr] = builder.block_params(block0) else {
+                    unreachable!()
+                };
+                builder.ensure_inserted_block();
+                let current_block = builder.current_block().unwrap();
+                let return_block = builder.create_block();
+                builder.insert_block_after(return_block, current_block);
+                let recurse_block = builder.create_block();
+                builder.insert_block_after(recurse_block, return_block);
+
+                let should_return =
+                    builder
+                        .ins()
+                        .icmp_imm(ir::condcodes::IntCC::Equal, remaining, 0);
+                builder
+                    .ins()
+                    .brif(should_return, return_block, &[], recurse_block, &[]);
+
+                builder.switch_to_block(return_block);
+                builder.ins().return_(&[prev_ptr]);
+                builder.seal_block(return_block);
+
+                builder.switch_to_block(recurse_block);
+                let next_remaining = builder.ins().iadd_imm(remaining, -1);
+                let consume_stack =
+                    declare(&mut builder, NS_LIBCALL_TRAMPOLINE, LibCall::ConsumeStack);
+                let ptr = builder.ins().stack_addr(pointer_type, slot, 0);
+                let call = builder.ins().call(consume_stack, &[next_remaining, ptr]);
+                let ret = builder.func.dfg.inst_results(call)[0];
+                builder.ins().return_(&[ret]);
+                builder.seal_block(recurse_block);
+            }
+
+            // Otherwise all other libcalls look the same:
+            //
+            // function %libcall(args..) -> rets.. {
+            // entry(args..):
+            //      ;; verify the next native host function has stack to execute
+            //      ;; on
+            //      call %consume_stack(RECURSIONS, 0)
+            //
+            //      ;; acquire the current thread's stack limit and make sure
+            //      ;; the libcall should actually proceed
+            //      limit = call %stack_limit()
+            //      sp = get_stack_pointer
+            //      cmp = icmp slt sp, limit
+            //      trapnz cmp, StackOverflow
+            //
+            //      ;; perform the actual libcall
+            //      rets... = call %the_libcall(args...)
+            //      return rets...
+            // }
+            //
+            // Not exactly the speediest thing in the world but it protects the
+            // host from stack overflow. Additionally libcalls are only used
+            // when the platform doesn't have native performance for something
+            // which means that things are gonna be slow anyway.
+            _ => {
+                let consume_stack =
+                    declare(&mut builder, NS_LIBCALL_TRAMPOLINE, LibCall::ConsumeStack);
+                let host_stack_limit = declare(&mut builder, NS_HOST_LIBCALL, LibCall::StackLimit);
+                let host_libcall = declare(&mut builder, NS_HOST_LIBCALL, libcall);
+
+                // Perform some stack probes through recursive function calls
+                // to ensure that there's some stack for the host `StackLimit`
+                // libcall to run
+                let const4_i32 = builder.ins().iconst(ir::types::I32, i64::from(RECURSIONS));
+                let const0_usize = builder.ins().iconst(pointer_type, 0);
+                builder
+                    .ins()
+                    .call(consume_stack, &[const4_i32, const0_usize]);
+
+                // Call the `StackLimit` intrinsic and make sure we have space.
+                let stack_limit_call = builder.ins().call(host_stack_limit, &[]);
+                let stack_limit = builder.func.dfg.inst_results(stack_limit_call)[0];
+                let trampoline_sp = builder.ins().get_stack_pointer(pointer_type);
+                let cmp = builder.ins().icmp(
+                    ir::condcodes::IntCC::SignedLessThan,
+                    trampoline_sp,
+                    stack_limit,
+                );
+                builder.ins().trapnz(cmp, ir::TrapCode::StackOverflow);
+
+                // And finally after all that call the actual libcall.
+                let args = builder.block_params(block0).to_vec();
+                let call = builder.ins().call(host_libcall, &args);
+                let results = builder.func.dfg.inst_results(call).to_vec();
+                builder.ins().return_(&results);
+            }
+        }
+        builder.finalize();
+
+        Ok(Box::new(compiler.finish()?))
     }
 }
 
