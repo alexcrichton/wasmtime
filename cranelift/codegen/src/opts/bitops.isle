@@ -136,6 +136,8 @@
 ;; (bitrev (bitrev x)) == x
 (rule (simplify (bitrev ty (bitrev ty x))) (subsume x))
 
+;; TODO: this is only commented out for benchmarking comparisons.
+;;
 ;; WebAssembly doesn't have a native byte-swapping instruction at this time so
 ;; languages which have a byte-swapping operation will compile it down to bit
 ;; shifting and twiddling. This attempts to pattern match what LLVM currently
@@ -145,44 +147,44 @@
 ;;
 ;; Technically this could be permuted quite a few ways and currently there's no
 ;; easy way to match all of them, so only one is matched here.
-(rule (simplify (bor ty @ $I32
-    (bor ty
-      (ishl ty x (iconst_u ty 24))
-      (ishl ty
-        (band ty x (iconst_u ty 0xff00))
-        (iconst_u ty 8)))
-    (bor ty
-      (band ty
-        (ushr ty x (iconst_u ty 8))
-        (iconst_u ty 0xff00))
-      (ushr ty x (iconst_u ty 24)))))
-  (bswap ty x))
-
-(rule (simplify (bor ty @ $I64
-    (bor ty
-      (bor ty
-        (ishl ty x (iconst_u ty 56))
-        (ishl ty
-          (band ty x (iconst_u ty 0xff00))
-          (iconst_u ty 40)))
-      (bor ty
-        (ishl ty
-          (band ty x (iconst_u ty 0xff_0000))
-          (iconst_u ty 24))
-        (ishl ty
-          (band ty x (iconst_u ty 0xff00_0000))
-          (iconst_u ty 8))))
-    (bor ty
-      (bor ty
-        (band ty
-          (ushr ty x (iconst_u ty 8))
-          (iconst_u ty 0xff00_0000))
-        (band ty
-          (ushr ty x (iconst_u ty 24))
-          (iconst_u ty 0xff_0000)))
-      (bor ty
-        (band ty
-          (ushr ty x (iconst_u ty 40))
-          (iconst_u ty 0xff00))
-        (ushr ty x (iconst_u ty 56))))))
-  (bswap ty x))
+;;(rule (simplify (bor ty @ $I32
+;;    (bor ty
+;;      (ishl ty x (iconst_u ty 24))
+;;      (ishl ty
+;;        (band ty x (iconst_u ty 0xff00))
+;;        (iconst_u ty 8)))
+;;    (bor ty
+;;      (band ty
+;;        (ushr ty x (iconst_u ty 8))
+;;        (iconst_u ty 0xff00))
+;;      (ushr ty x (iconst_u ty 24)))))
+;;  (bswap ty x))
+;;
+;;(rule (simplify (bor ty @ $I64
+;;    (bor ty
+;;      (bor ty
+;;        (ishl ty x (iconst_u ty 56))
+;;        (ishl ty
+;;          (band ty x (iconst_u ty 0xff00))
+;;          (iconst_u ty 40)))
+;;      (bor ty
+;;        (ishl ty
+;;          (band ty x (iconst_u ty 0xff_0000))
+;;          (iconst_u ty 24))
+;;        (ishl ty
+;;          (band ty x (iconst_u ty 0xff00_0000))
+;;          (iconst_u ty 8))))
+;;    (bor ty
+;;      (bor ty
+;;        (band ty
+;;          (ushr ty x (iconst_u ty 8))
+;;          (iconst_u ty 0xff00_0000))
+;;        (band ty
+;;          (ushr ty x (iconst_u ty 24))
+;;          (iconst_u ty 0xff_0000)))
+;;      (bor ty
+;;        (band ty
+;;          (ushr ty x (iconst_u ty 40))
+;;          (iconst_u ty 0xff00))
+;;        (ushr ty x (iconst_u ty 56))))))
+;;  (bswap ty x))

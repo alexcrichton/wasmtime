@@ -119,6 +119,7 @@ fn ignore(test: &Path, strategy: Strategy) -> bool {
                 "multi-memory",
                 "relaxed-simd",
                 "function-references",
+                "alex.wast",
                 // tests in misc_testsuite that Winch doesn't support
                 "no-panic.wast",
                 "externref-id-function.wast",
@@ -227,6 +228,7 @@ fn run_wast(wast: &Path, strategy: Strategy, pooling: bool) -> anyhow::Result<()
     let tail_call = feature_found(wast, "tail-call") || feature_found(wast, "function-references");
     let use_shared_memory = feature_found_src(&wast_bytes, "shared_memory")
         || feature_found_src(&wast_bytes, "shared)");
+    let alex = feature_found(wast, "alex");
 
     if pooling && use_shared_memory {
         log::warn!("skipping pooling test with shared memory");
@@ -248,6 +250,7 @@ fn run_wast(wast: &Path, strategy: Strategy, pooling: bool) -> anyhow::Result<()
         .wasm_relaxed_simd(relaxed_simd)
         .wasm_tail_call(tail_call)
         .wasm_custom_page_sizes(custom_page_sizes)
+        .wasm_alex(alex)
         .strategy(strategy);
 
     if is_cranelift {

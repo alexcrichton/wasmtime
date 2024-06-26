@@ -2554,6 +2554,23 @@ pub fn translate_operator<FE: FuncEnvironment + ?Sized>(
         | Operator::GlobalAtomicRmwCmpxchg { .. } => {
             unimplemented!("shared-everything-threads not yet implemented")
         }
+
+        Operator::I32SwapBytes | Operator::I64SwapBytes => {
+            let arg1 = state.pop1();
+            state.push1(builder.ins().bswap(arg1));
+        }
+        Operator::I64MulWideS => {
+            let (arg1, arg2) = state.pop2();
+            let (lo, hi) = builder.ins().smul_wide(arg1, arg2);
+            state.push1(lo);
+            state.push1(hi);
+        }
+        Operator::I64MulWideU => {
+            let (arg1, arg2) = state.pop2();
+            let (lo, hi) = builder.ins().umul_wide(arg1, arg2);
+            state.push1(lo);
+            state.push1(hi);
+        }
     };
     Ok(())
 }

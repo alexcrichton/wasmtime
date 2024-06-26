@@ -2106,6 +2106,37 @@ pub(crate) fn define(
                 .operands_out(vec![Operand::new("a", NarrowScalar), of_out.clone()]),
             );
         }
+
+        {
+            let i64_ty = &TypeVar::new(
+                "i64",
+                "An 64-bit integer type",
+                TypeSetBuilder::new().ints(64..64).build(),
+            );
+
+            ig.push(
+                Inst::new(
+                    "umul_wide",
+                    r#"
+                TODO
+                "#,
+                    &formats.binary,
+                )
+                .operands_in(vec![Operand::new("x", i64_ty), Operand::new("y", i64_ty)])
+                .operands_out(vec![Operand::new("lo", i64_ty), Operand::new("hi", i64_ty)]),
+            );
+            ig.push(
+                Inst::new(
+                    "smul_wide",
+                    r#"
+                TODO
+                "#,
+                    &formats.binary,
+                )
+                .operands_in(vec![Operand::new("x", i64_ty), Operand::new("y", i64_ty)])
+                .operands_out(vec![Operand::new("lo", i64_ty), Operand::new("hi", i64_ty)]),
+            );
+        }
     }
 
     let i32_64 = &TypeVar::new(

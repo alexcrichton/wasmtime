@@ -269,6 +269,8 @@ wasmtime_option_group! {
         pub function_references: Option<bool>,
         /// Configure support for the GC proposal.
         pub gc: Option<bool>,
+        /// TODO
+        pub alex: Option<bool>,
     }
 
     enum Wasm {
@@ -672,6 +674,9 @@ impl CommonOptions {
         }
         if let Some(enable) = self.wasm.memory64.or(all) {
             config.wasm_memory64(enable);
+        }
+        if let Some(enable) = self.wasm.alex.or(all) {
+            config.wasm_alex(enable);
         }
 
         macro_rules! handle_conditionally_compiled {

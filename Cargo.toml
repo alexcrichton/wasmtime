@@ -253,15 +253,24 @@ wit-bindgen = { version = "0.26.0", default-features = false }
 wit-bindgen-rust-macro = { version = "0.26.0", default-features = false }
 
 # wasm-tools family:
-wasmparser = { version = "0.211.1", default-features = false }
-wat = "1.211.1"
-wast = "211.0.1"
-wasmprinter = "0.211.1"
-wasm-encoder = "0.211.1"
-wasm-smith = "0.211.1"
-wasm-mutate = "0.211.1"
-wit-parser = "0.211.1"
-wit-component = "0.211.1"
+# wasmparser = { version = "0.211.1", default-features = false }
+# wat = "1.211.1"
+# wast = "211.0.1"
+# wasmprinter = "0.211.1"
+# wasm-encoder = "0.211.1"
+# wasm-smith = "0.211.1"
+# wasm-mutate = "0.211.1"
+# wit-parser = "0.211.1"
+# wit-component = "0.211.1"
+wasmparser = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals', default-features = false }
+wat = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wast = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wasmprinter = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wasm-encoder = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wasm-smith = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wasm-mutate = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wit-parser = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wit-component = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
 
 # Non-Bytecode Alliance maintained dependencies:
 # --------------------------

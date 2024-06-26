@@ -407,7 +407,7 @@
             (x_lo Reg (vec_extract_lane $I64X2 x 1 (zero_reg)))
             (y_hi Reg (vec_extract_lane $I64X2 y 0 (zero_reg)))
             (y_lo Reg (vec_extract_lane $I64X2 y 1 (zero_reg)))
-            (lo_pair RegPair (umul_wide x_lo y_lo))
+            (lo_pair RegPair (s390x_umul_wide x_lo y_lo))
             (res_lo Reg (regpair_lo lo_pair))
             (res_hi_1 Reg (regpair_hi lo_pair))
             (res_hi_2 Reg (mul_reg $I64 x_lo y_hi))
@@ -434,7 +434,7 @@
 
 ;; Multiply high part unsigned, 64-bit types.  (Uses umul_wide.)
 (rule (lower (has_type $I64 (umulhi x y)))
-      (let ((pair RegPair (umul_wide x y)))
+      (let ((pair RegPair (s390x_umul_wide x y)))
         (regpair_hi pair)))
 
 ;; Multiply high part unsigned, vector types with 8-, 16-, or 32-bit elements.
@@ -445,10 +445,10 @@
 ;; Multiply high part unsigned, vector types with 64-bit elements.
 ;; Has to be scalarized.
 (rule (lower (has_type $I64X2 (umulhi x y)))
-      (let ((pair_0 RegPair (umul_wide (vec_extract_lane $I64X2 x 0 (zero_reg))
+      (let ((pair_0 RegPair (s390x_umul_wide (vec_extract_lane $I64X2 x 0 (zero_reg))
                                        (vec_extract_lane $I64X2 y 0 (zero_reg))))
             (res_0 Reg (regpair_hi pair_0))
-            (pair_1 RegPair (umul_wide (vec_extract_lane $I64X2 x 1 (zero_reg))
+            (pair_1 RegPair (s390x_umul_wide (vec_extract_lane $I64X2 x 1 (zero_reg))
                                        (vec_extract_lane $I64X2 y 1 (zero_reg))))
             (res_1 Reg (regpair_hi pair_1)))
         (mov_to_vec128 $I64X2 res_0 res_1)))
@@ -472,7 +472,7 @@
 
 ;; Multiply high part signed, 64-bit types.  (Uses smul_wide.)
 (rule (lower (has_type $I64 (smulhi x y)))
-      (let ((pair RegPair (smul_wide x y)))
+      (let ((pair RegPair (s390x_smul_wide x y)))
         (regpair_hi pair)))
 
 ;; Multiply high part signed, vector types with 8-, 16-, or 32-bit elements.
@@ -483,10 +483,10 @@
 ;; Multiply high part unsigned, vector types with 64-bit elements.
 ;; Has to be scalarized.
 (rule (lower (has_type $I64X2 (smulhi x y)))
-      (let ((pair_0 RegPair (smul_wide (vec_extract_lane $I64X2 x 0 (zero_reg))
+      (let ((pair_0 RegPair (s390x_smul_wide (vec_extract_lane $I64X2 x 0 (zero_reg))
                                        (vec_extract_lane $I64X2 y 0 (zero_reg))))
             (res_0 Reg (copy_reg $I64 (regpair_hi pair_0)))
-            (pair_1 RegPair (smul_wide (vec_extract_lane $I64X2 x 1 (zero_reg))
+            (pair_1 RegPair (s390x_smul_wide (vec_extract_lane $I64X2 x 1 (zero_reg))
                                        (vec_extract_lane $I64X2 y 1 (zero_reg))))
             (res_1 Reg (regpair_hi pair_1)))
         (mov_to_vec128 $I64X2 res_0 res_1)))

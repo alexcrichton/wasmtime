@@ -227,6 +227,8 @@ impl Metadata<'_> {
             shared_everything_threads,
             component_model_values,
             component_model_nested_names,
+            component_model_more_flags,
+            alex,
 
             // Always on; we don't currently have knobs for these.
             mutable_global: _,
@@ -242,6 +244,9 @@ impl Metadata<'_> {
         assert!(!component_model_values);
         assert!(!component_model_nested_names);
         assert!(!shared_everything_threads);
+        assert!(!component_model_more_flags);
+
+        let _ = alex; // TODO
 
         Metadata {
             target: engine.compiler().triple().to_string(),

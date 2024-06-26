@@ -2092,15 +2092,15 @@
         dst))
 
 ;; Helper for emitting `MInst.SMulWide` instructions.
-(decl smul_wide (Reg Reg) RegPair)
-(rule (smul_wide src1 src2)
+(decl s390x_smul_wide (Reg Reg) RegPair)
+(rule (s390x_smul_wide src1 src2)
       (let ((dst WritableRegPair (temp_writable_regpair))
             (_ Unit (emit (MInst.SMulWide dst src1 src2))))
         dst))
 
 ;; Helper for emitting `MInst.UMulWide` instructions.
-(decl umul_wide (Reg Reg) RegPair)
-(rule (umul_wide src1 src2)
+(decl s390x_umul_wide (Reg Reg) RegPair)
+(rule (s390x_umul_wide src1 src2)
       (let ((dst WritableRegPair (temp_writable_regpair))
             (_ Unit (emit (MInst.UMulWide dst src1 src2))))
         dst))
