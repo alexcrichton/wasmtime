@@ -6,14 +6,14 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 use wasmtime::component::Linker;
 use wasmtime::{Engine, Store, StoreLimits};
 use wasmtime_wasi::{IoView, StreamError, StreamResult, WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::bindings::http::types::Scheme;
-use wasmtime_wasi_http::bindings::ProxyPre;
+use wasmtime_wasi_http::bindings::{Proxy, ProxyPre};
 use wasmtime_wasi_http::io::TokioIo;
 use wasmtime_wasi_http::{
     body::HyperOutgoingBody, WasiHttpCtx, WasiHttpView, DEFAULT_OUTGOING_BODY_BUFFER_CHUNKS,
@@ -26,6 +26,9 @@ use wasmtime_wasi_config::{WasiConfig, WasiConfigVariables};
 use wasmtime_wasi_keyvalue::{WasiKeyValue, WasiKeyValueCtx, WasiKeyValueCtxBuilder};
 #[cfg(feature = "wasi-nn")]
 use wasmtime_wasi_nn::wit::WasiNnCtx;
+
+#[global_allocator]
+static A: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 struct Host {
     table: wasmtime::component::ResourceTable,
@@ -96,6 +99,14 @@ pub struct ServeCommand {
     /// The WebAssembly component to run.
     #[arg(value_name = "WASM", required = true)]
     component: PathBuf,
+
+    /// TODO
+    #[arg(long)]
+    requests_per_instance: Option<u32>,
+
+    /// TODO
+    #[arg(long)]
+    max_cached_instances: Option<usize>,
 }
 
 impl ServeCommand {
@@ -149,27 +160,10 @@ impl ServeCommand {
         Ok(())
     }
 
-    fn new_store(&self, engine: &Engine, req_id: u64) -> Result<Store<Host>> {
-        let mut builder = WasiCtxBuilder::new();
-        self.run.configure_wasip2(&mut builder)?;
-
-        builder.env("REQUEST_ID", req_id.to_string());
-
-        let stdout_prefix: String;
-        let stderr_prefix: String;
-        if self.no_logging_prefix {
-            stdout_prefix = "".to_string();
-            stderr_prefix = "".to_string();
-        } else {
-            stdout_prefix = format!("stdout [{req_id}] :: ");
-            stderr_prefix = format!("stderr [{req_id}] :: ");
-        }
-        builder.stdout(LogStream::new(stdout_prefix, Output::Stdout));
-        builder.stderr(LogStream::new(stderr_prefix, Output::Stderr));
-
+    fn new_store(&self, engine: &Engine) -> Result<Store<Host>> {
         let mut host = Host {
             table: wasmtime::component::ResourceTable::new(),
-            ctx: builder.build(),
+            ctx: WasiCtxBuilder::new().build(),
             http: WasiHttpCtx::new(),
             http_outgoing_body_buffer_chunks: self.run.common.wasi.http_outgoing_body_buffer_chunks,
             http_outgoing_body_chunk_size: self.run.common.wasi.http_outgoing_body_chunk_size,
@@ -465,11 +459,69 @@ struct ProxyHandlerInner {
     engine: Engine,
     instance_pre: ProxyPre<Host>,
     next_id: AtomicU64,
+    instances: Mutex<Vec<Instance>>,
+}
+
+struct Instance {
+    store: Store<Host>,
+    handled: u32,
+    proxy: Proxy,
 }
 
 impl ProxyHandlerInner {
     fn next_req_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    async fn pop_instance(&self, req_id: u64) -> Result<Instance> {
+        let mut instance = self._pop_instance().await?;
+        let mut builder = WasiCtxBuilder::new();
+        self.cmd.run.configure_wasip2(&mut builder)?;
+        builder.env("REQUEST_ID", req_id.to_string());
+
+        let stdout_prefix: String;
+        let stderr_prefix: String;
+        if self.cmd.no_logging_prefix {
+            stdout_prefix = "".to_string();
+            stderr_prefix = "".to_string();
+        } else {
+            stdout_prefix = format!("stdout [{req_id}] :: ");
+            stderr_prefix = format!("stderr [{req_id}] :: ");
+        }
+        builder.stdout(LogStream::new(stdout_prefix, Output::Stdout));
+        builder.stderr(LogStream::new(stderr_prefix, Output::Stderr));
+
+        instance.store.data_mut().ctx = builder.build();
+        Ok(instance)
+    }
+
+    async fn _pop_instance(&self) -> Result<Instance> {
+        {
+            let mut instances = self.instances.lock().unwrap();
+            if let Some(instance) = instances.pop() {
+                return Ok(instance);
+            }
+        }
+
+        let mut store = self.cmd.new_store(&self.engine)?;
+        let proxy = self.instance_pre.instantiate_async(&mut store).await?;
+        Ok(Instance {
+            store,
+            handled: 0,
+            proxy,
+        })
+    }
+
+    fn push_instance(&self, mut instance: Instance) {
+        instance.handled += 1;
+        let requests_per_instance = self.cmd.requests_per_instance.unwrap_or(1 << 20);
+        let max_cached_instances = self.cmd.max_cached_instances.unwrap_or(1000);
+        if instance.handled < requests_per_instance {
+            let mut instances = self.instances.lock().unwrap();
+            if instances.len() < max_cached_instances {
+                instances.push(instance);
+            }
+        }
     }
 }
 
@@ -483,6 +535,7 @@ impl ProxyHandler {
             engine,
             instance_pre,
             next_id: AtomicU64::from(0),
+            instances: Mutex::default(),
         }))
     }
 }
@@ -503,21 +556,26 @@ async fn handle_request(
         req.uri()
     );
 
-    let mut store = inner.cmd.new_store(&inner.engine, req_id)?;
+    let mut instance = inner.pop_instance(req_id).await?;
 
-    let req = store.data_mut().new_incoming_request(Scheme::Http, req)?;
-    let out = store.data_mut().new_response_outparam(sender)?;
-    let proxy = inner.instance_pre.instantiate_async(&mut store).await?;
+    let req = instance
+        .store
+        .data_mut()
+        .new_incoming_request(Scheme::Http, req)?;
+    let out = instance.store.data_mut().new_response_outparam(sender)?;
 
     let task = tokio::task::spawn(async move {
-        if let Err(e) = proxy
+        if let Err(e) = instance
+            .proxy
             .wasi_http_incoming_handler()
-            .call_handle(store, req, out)
+            .call_handle(&mut instance.store, req, out)
             .await
         {
             log::error!("[{req_id}] :: {:?}", e);
             return Err(e);
         }
+
+        inner.push_instance(instance);
 
         Ok(())
     });

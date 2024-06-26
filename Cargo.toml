@@ -81,6 +81,7 @@ tokio = { workspace = true, optional = true, features = [ "signal", "macros" ] }
 hyper = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
+tikv-jemallocator = "0.6.0"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true, features = ["mm", "param", "process"] }
