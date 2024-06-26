@@ -312,25 +312,34 @@ where
     }
     fn scheme(&mut self, id: Resource<HostIncomingRequest>) -> wasmtime::Result<Option<Scheme>> {
         let req = self.table().get(&id)?;
-        Ok(req.parts.uri.scheme().map(|scheme| {
-            if scheme == &http::uri::Scheme::HTTP {
-                return Scheme::Http;
-            }
+        let scheme = req.parts.uri.scheme().unwrap_or(&http::uri::Scheme::HTTP);
+        if scheme == &http::uri::Scheme::HTTP {
+            return Ok(Some(Scheme::Http));
+        }
 
-            if scheme == &http::uri::Scheme::HTTPS {
-                return Scheme::Https;
-            }
+        if scheme == &http::uri::Scheme::HTTPS {
+            return Ok(Some(Scheme::Https));
+        }
 
-            Scheme::Other(req.parts.uri.scheme_str().unwrap().to_owned())
-        }))
+        Ok(Some(Scheme::Other(
+            req.parts.uri.scheme_str().unwrap().to_owned(),
+        )))
     }
     fn authority(&mut self, id: Resource<HostIncomingRequest>) -> wasmtime::Result<Option<String>> {
         let req = self.table().get(&id)?;
-        Ok(req
-            .parts
-            .uri
-            .authority()
-            .map(|auth| auth.as_str().to_owned()))
+
+        match req.parts.headers.get(hyper::header::HOST) {
+            Some(val) => {
+                let val = std::str::from_utf8(val.as_bytes())
+                    .map_err(|_| types::ErrorCode::HttpRequestUriInvalid)?;
+                return Ok(Some(val.to_string()));
+            }
+            None => Ok(req
+                .parts
+                .uri
+                .authority()
+                .map(|auth| auth.as_str().to_owned())),
+        }
     }
 
     fn headers(
