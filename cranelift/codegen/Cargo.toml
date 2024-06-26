@@ -42,7 +42,7 @@ rustc-hash  = { workspace = true }
 # accommodated in `tests`.
 
 [dev-dependencies]
-criterion = { workspace = true }
+criterion = { workspace = true, features = ["html_reports", "rayon"] }
 similar = "2.1.0"
 env_logger = { workspace = true }
 

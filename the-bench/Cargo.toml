@@ -1,0 +1,25 @@
+[package]
+name = "the-bench"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blind-rsa-signatures = "0.15.1"
+
+[lints]
+workspace = true
+
+[lib]
+name = "the_bench"
+bench = false
+doc = false
+test = false
+
+[[bench]]
+name = "bench"
+harness = false
+
+[dev-dependencies]
+criterion.workspace = true
