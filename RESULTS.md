@@ -76,3 +76,7 @@ Found 1 outliers among 100 measurements (1.00%)
 
   )
 ```
+
+# Overflowing Arithmetic
+
+https://godbolt.org/z/cj7dY8PbP
