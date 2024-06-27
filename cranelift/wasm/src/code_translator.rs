@@ -2559,6 +2559,16 @@ pub fn translate_operator<FE: FuncEnvironment + ?Sized>(
             let arg1 = state.pop1();
             state.push1(builder.ins().bswap(arg1));
         }
+        Operator::I64MulHighS => {
+            let (arg1, arg2) = state.pop2();
+            let hi = builder.ins().smulhi(arg1, arg2);
+            state.push1(hi);
+        }
+        Operator::I64MulHighU => {
+            let (arg1, arg2) = state.pop2();
+            let hi = builder.ins().umulhi(arg1, arg2);
+            state.push1(hi);
+        }
         Operator::I64MulWideS => {
             let (arg1, arg2) = state.pop2();
             let (lo, hi) = builder.ins().smul_wide(arg1, arg2);
