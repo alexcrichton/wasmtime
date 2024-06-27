@@ -23,3 +23,4 @@ harness = false
 
 [dev-dependencies]
 criterion.workspace = true
+rand = { workspace = true, features = ['small_rng'] }

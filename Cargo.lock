@@ -2997,6 +2997,7 @@ version = "23.0.0"
 dependencies = [
  "blind-rsa-signatures",
  "criterion",
+ "rand",
 ]
 
 [[package]]

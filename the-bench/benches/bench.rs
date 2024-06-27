@@ -1,42 +1,34 @@
 use criterion::Criterion;
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
+use std::hint::black_box;
 
 fn bswap(c: &mut Criterion) {
-    c.bench_function("i32.swap_bytes_polyfill", |b| {
-        b.iter(|| i32_swap_bytes_polyfill(std::hint::black_box(0u32)))
-    });
+    let mut list32 = [0u32; 128];
+    let mut list64 = [0u64; 128];
+
+    let mut rng = SmallRng::seed_from_u64(10);
+    for slot in list32.iter_mut() {
+        *slot = rng.gen();
+    }
+    for slot in list64.iter_mut() {
+        *slot = rng.gen();
+    }
+
     c.bench_function("i32.swap_bytes", |b| {
-        b.iter(|| i32_swap_bytes(std::hint::black_box(0u32)))
-    });
-    c.bench_function("i64.swap_bytes_polyfill", |b| {
-        b.iter(|| i64_swap_bytes_polyfill(std::hint::black_box(0u64)))
+        b.iter(|| list32.iter().map(|l| l.swap_bytes()).sum::<u32>())
     });
     c.bench_function("i64.swap_bytes", |b| {
-        b.iter(|| i64_swap_bytes(std::hint::black_box(0u64)))
+        b.iter(|| list64.iter().map(|l| l.swap_bytes()).sum::<u64>())
     });
 }
 
-#[inline(never)]
-#[no_mangle]
-pub extern "C" fn i32_swap_bytes_polyfill(a: u32) -> u32 {
-    a.swap_bytes()
-}
-
-#[inline(never)]
-#[no_mangle]
-pub extern "C" fn i64_swap_bytes_polyfill(a: u64) -> u64 {
-    a.swap_bytes()
-}
-
-#[inline(never)]
-#[no_mangle]
 pub extern "C" fn i32_swap_bytes(a: u32) -> u32 {
-    a.reverse_bits()
+    a.swap_bytes()
 }
 
-#[inline(never)]
-#[no_mangle]
 pub extern "C" fn i64_swap_bytes(a: u64) -> u64 {
-    a.reverse_bits()
+    a.swap_bytes()
 }
 
 fn mul_wide(c: &mut Criterion) {
