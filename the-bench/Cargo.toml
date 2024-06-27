@@ -6,7 +6,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-blind-rsa-signatures = "0.15.1"
+blind-rsa-signatures = "0.14.1"
 
 [lints]
 workspace = true

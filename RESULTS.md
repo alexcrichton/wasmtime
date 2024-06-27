@@ -35,3 +35,44 @@ Found 17 outliers among 100 measurements (17.00%)
 Native instruction is 1.6-2x faster.
 
 # `i64.mul_wide_{s,u}`
+
+```
+blind-sig               time:   [32.829 ms 32.845 ms 32.868 ms]
+                        change: [-29.482% -29.272% -29.084%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high severe
+```
+
+```wasm
+  ;; (a * N + b) * (c * N + d) mod N^2
+  ;;    == a * C * N^2 + (b * c + d * a) * N + (b * d) mod N^2
+  ;;    == (b * c + d * a) * N + (b * d)
+  ;;    == (b * c + d * a) * N + (b * d)
+  (func $__multi3  (param $ptr i32)
+      (param $b i64)
+      (param $a i64)
+      (param $d i64)
+      (param $c i64)
+
+    (local $bd_lo i64)
+    (local $bd_hi i64)
+
+
+    local.get $ptr
+    local.get $ptr
+
+    (i64.mul_wide_u (local.get $b) (local.get $d))
+    local.set $bd_hi
+    i64.store offset=0
+
+    local.get $bd_hi
+    (i64.mul (local.get $b) (local.get $c))
+    i64.add
+    (i64.mul (local.get $d) (local.get $a))
+    i64.add
+
+    i64.store offset=8
+
+  )
+```
