@@ -2571,6 +2571,42 @@ pub fn translate_operator<FE: FuncEnvironment + ?Sized>(
             state.push1(lo);
             state.push1(hi);
         }
+        Operator::I32AddOverflowU | Operator::I64AddOverflowU => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().uadd_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32AddOverflowS | Operator::I64AddOverflowS => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().sadd_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32SubOverflowU | Operator::I64SubOverflowU => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().usub_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32SubOverflowS | Operator::I64SubOverflowS => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().ssub_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32MulOverflowU | Operator::I64MulOverflowU => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().umul_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32MulOverflowS | Operator::I64MulOverflowS => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().smul_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
     };
     Ok(())
 }

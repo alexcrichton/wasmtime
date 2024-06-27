@@ -3489,7 +3489,7 @@ dependencies = [
 [[package]]
 name = "wasm-encoder"
 version = "0.211.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "leb128",
  "wasmparser 0.211.1",
@@ -3514,7 +3514,7 @@ dependencies = [
 [[package]]
 name = "wasm-metadata"
 version = "0.211.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "anyhow",
  "indexmap 2.2.6",
@@ -3529,7 +3529,7 @@ dependencies = [
 [[package]]
 name = "wasm-mutate"
 version = "0.211.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "egg",
  "log",
@@ -3542,7 +3542,7 @@ dependencies = [
 [[package]]
 name = "wasm-smith"
 version = "0.211.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3608,7 +3608,7 @@ dependencies = [
 [[package]]
 name = "wasmparser"
 version = "0.211.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "ahash",
  "bitflags 2.4.1",
@@ -3630,7 +3630,7 @@ dependencies = [
 [[package]]
 name = "wasmprinter"
 version = "0.211.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "anyhow",
  "termcolor",
@@ -4222,7 +4222,7 @@ dependencies = [
 [[package]]
 name = "wast"
 version = "211.0.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "bumpalo",
  "leb128",
@@ -4234,7 +4234,7 @@ dependencies = [
 [[package]]
 name = "wat"
 version = "1.211.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "wast 211.0.1",
 ]
@@ -4611,7 +4611,7 @@ dependencies = [
 [[package]]
 name = "wit-component"
 version = "0.211.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "anyhow",
  "bitflags 2.4.1",
@@ -4647,7 +4647,7 @@ dependencies = [
 [[package]]
 name = "wit-parser"
 version = "0.211.1"
-source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#f20e7b860bd89c0eca4bce1cee7728ce2b731905"
+source = "git+https://github.com/alexcrichton/wasm-tools?branch=my-wasm-proposals#338c8991f8dbcd46894f699feb42d497c975ee28"
 dependencies = [
  "anyhow",
  "id-arena",
