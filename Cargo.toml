@@ -92,7 +92,7 @@ filecheck = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time", "macros", "rt-multi-thread"] }
 wast = { workspace = true }
-criterion = { workspace = true }
+criterion = { workspace = true, features = ["html_reports", "rayon"] }
 num_cpus = "1.13.0"
 memchr = "2.4"
 async-trait = { workspace = true }
@@ -267,15 +267,24 @@ wit-bindgen = { version = "0.31.0", default-features = false }
 wit-bindgen-rust-macro = { version = "0.31.0", default-features = false }
 
 # wasm-tools family:
-wasmparser = { version = "0.217.0", default-features = false }
-wat = "1.217.0"
-wast = "217.0.0"
-wasmprinter = "0.217.0"
-wasm-encoder = "0.217.0"
-wasm-smith = "0.217.0"
-wasm-mutate = "0.217.0"
-wit-parser = "0.217.0"
-wit-component = "0.217.0"
+# wasmparser = { version = "0.217.0", default-features = false }
+# wat = "1.217.0"
+# wast = "217.0.0"
+# wasmprinter = "0.217.0"
+# wasm-encoder = "0.217.0"
+# wasm-smith = "0.217.0"
+# wasm-mutate = "0.217.0"
+# wit-parser = "0.217.0"
+# wit-component = "0.217.0"
+wasmparser = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals', default-features = false }
+wat = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wast = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wasmprinter = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wasm-encoder = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wasm-smith = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wasm-mutate = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wit-parser = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
+wit-component = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'my-wasm-proposals' }
 
 # Non-Bytecode Alliance maintained dependencies:
 # --------------------------

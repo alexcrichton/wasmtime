@@ -3001,3 +3001,49 @@
                   (emit_island (targets_jt_space targets))))
             (ridx Reg (put_in_reg_zext32 idx)))
        (br_table_impl (u32_as_u64 jt_size) ridx default targets)))
+
+;; Rules for `{s,u}add_overflow_cin` ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(rule (lower i @ (uadd_overflow_cin a @ (value_type (ty_32_or_64 ty)) b c))
+  (let (
+      (carry_in ProducesFlags (set_c_flag c))
+      (adcs ConsumesAndProducesFlags (alu_rrr_with_flags_chained ty a b (ALUOp.AdcS)))
+      (carry_out ConsumesFlags (cset_paired (Cond.Hs)))
+    )
+    (output_carry_result_as_pair (with_flags_chained carry_in adcs carry_out))))
+
+(rule (lower i @ (sadd_overflow_cin a @ (value_type (ty_32_or_64 ty)) b c))
+  (let (
+      (carry_in ProducesFlags (set_c_flag c))
+      (adcs ConsumesAndProducesFlags (alu_rrr_with_flags_chained ty a b (ALUOp.AdcS)))
+      (carry_out ConsumesFlags (cset_paired (Cond.Vs)))
+    )
+    (output_carry_result_as_pair (with_flags_chained carry_in adcs carry_out))))
+
+(decl set_c_flag (Value) ProducesFlags)
+(rule (set_c_flag val)
+  (if-let (imm12_from_u64 imm) (i64_as_u64 1))
+  (cmp_imm (OperandSize.Size32) (put_in_reg_zext32 val) imm))
+
+(rule (lower i @ (usub_overflow_bin a @ (value_type (ty_32_or_64 ty)) b c))
+  (let (
+      (carry_in ProducesFlags (set_c_flag_invert c))
+      (sbcs ConsumesAndProducesFlags (alu_rrr_with_flags_chained ty a b (ALUOp.SbcS)))
+      (carry_out ConsumesFlags (cset_paired (Cond.Lo)))
+    )
+    (output_carry_result_as_pair (with_flags_chained carry_in sbcs carry_out))))
+
+(rule (lower i @ (ssub_overflow_bin a @ (value_type (ty_32_or_64 ty)) b c))
+  (let (
+      (carry_in ProducesFlags (set_c_flag_invert c))
+      (sbcs ConsumesAndProducesFlags (alu_rrr_with_flags_chained ty a b (ALUOp.SbcS)))
+      (carry_out ConsumesFlags (cset_paired (Cond.Vs)))
+    )
+    (output_carry_result_as_pair (with_flags_chained carry_in sbcs carry_out))))
+
+(decl set_c_flag_invert (Value) ProducesFlags)
+(rule (set_c_flag_invert val)
+  (cmp (OperandSize.Size32) (imm $I32 (ImmExtend.Zero) 0) (put_in_reg_zext32 val)))
+
+(decl output_carry_result_as_pair (MultiReg) InstOutput)
+(rule (output_carry_result_as_pair (MultiReg.Two op flags)) (output_pair op flags))

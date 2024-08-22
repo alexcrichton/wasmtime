@@ -419,7 +419,8 @@
 ;; Newtype wrapper around `MInst` for instructions that consume and produce flags
 (type ConsumesAndProducesFlags (enum
                       (SideEffect (inst MInst))
-                      (ReturnsReg (inst MInst) (result Reg))))
+                      (ReturnsReg (inst MInst) (result Reg))
+                      (ReturnsResultWithProducer (inst MInst) (result Reg))))
 
 ;; Newtype wrapper around `MInst` for instructions that consume flags.
 ;;
@@ -439,6 +440,14 @@
                                                              (inst4 MInst)
                                                              (result ValueRegs))))
 
+(decl only_consume_flags (ConsumesAndProducesFlags) ConsumesFlags)
+(rule (only_consume_flags (ConsumesAndProducesFlags.SideEffect inst))
+  (ConsumesFlags.ConsumesFlagsSideEffect inst))
+(rule (only_consume_flags (ConsumesAndProducesFlags.ReturnsReg inst reg))
+  (ConsumesFlags.ConsumesFlagsReturnsReg inst reg))
+(rule (only_consume_flags (ConsumesAndProducesFlags.ReturnsResultWithProducer inst reg))
+  (ConsumesFlags.ConsumesFlagsReturnsResultWithProducer inst reg))
+(convert ConsumesAndProducesFlags ConsumesFlags only_consume_flags)
 
 
 ;; Get the produced register out of a ProducesFlags.
@@ -853,6 +862,22 @@
             (_ Unit (emit consume_inst3))
             (_ Unit (emit consume_inst4)))
         (MultiReg.Four prod_result middle_result (value_regs_get consume_result 0) (value_regs_get consume_result 1))))
+
+(rule (with_flags_chained (ProducesFlags.ProducesFlagsReturnsResultWithConsumer prod_inst prod_result)
+                          (ConsumesAndProducesFlags.ReturnsResultWithProducer middle_inst middle_result)
+                          (ConsumesFlags.ConsumesFlagsReturnsReg consume_inst consume_result))
+      (let ((_ Unit (emit prod_inst))
+            (_ Unit (emit middle_inst))
+            (_ Unit (emit consume_inst)))
+        (MultiReg.Three prod_result middle_result consume_result)))
+
+(rule (with_flags_chained (ProducesFlags.ProducesFlagsSideEffect prod_inst)
+                          (ConsumesAndProducesFlags.ReturnsReg middle_inst middle_result)
+                          (ConsumesFlags.ConsumesFlagsReturnsResultWithProducer consume_inst consume_result))
+      (let ((_ Unit (emit prod_inst))
+            (_ Unit (emit middle_inst))
+            (_ Unit (emit consume_inst)))
+        (MultiReg.Two middle_result consume_result)))
 
 ;;;; Helpers for accessing compilation flags ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

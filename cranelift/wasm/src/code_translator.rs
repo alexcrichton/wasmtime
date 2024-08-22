@@ -2579,6 +2579,139 @@ pub fn translate_operator<FE: FuncEnvironment + ?Sized>(
                 "shared-everything-threads operators are not yet implemented"
             ));
         }
+
+        Operator::I32SwapBytes | Operator::I64SwapBytes => {
+            let arg1 = state.pop1();
+            state.push1(builder.ins().bswap(arg1));
+        }
+        Operator::I64MulHighS => {
+            let (arg1, arg2) = state.pop2();
+            let hi = builder.ins().smulhi(arg1, arg2);
+            state.push1(hi);
+        }
+        Operator::I64MulHighU => {
+            let (arg1, arg2) = state.pop2();
+            let hi = builder.ins().umulhi(arg1, arg2);
+            state.push1(hi);
+        }
+        Operator::I64MulWideS => {
+            let (arg1, arg2) = state.pop2();
+            let arg1 = builder.ins().sextend(I128, arg1);
+            let arg2 = builder.ins().sextend(I128, arg2);
+            let result = builder.ins().imul(arg1, arg2);
+            let (lo, hi) = builder.ins().isplit(result);
+            state.push2(lo, hi);
+        }
+        Operator::I64MulWideU => {
+            let (arg1, arg2) = state.pop2();
+            let arg1 = builder.ins().uextend(I128, arg1);
+            let arg2 = builder.ins().uextend(I128, arg2);
+            let result = builder.ins().imul(arg1, arg2);
+            let (lo, hi) = builder.ins().isplit(result);
+            state.push2(lo, hi);
+        }
+        Operator::I32AddOverflowU | Operator::I64AddOverflowU => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().uadd_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32AddOverflowS | Operator::I64AddOverflowS => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().sadd_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32SubOverflowU | Operator::I64SubOverflowU => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().usub_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32SubOverflowS | Operator::I64SubOverflowS => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().ssub_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32MulOverflowU | Operator::I64MulOverflowU => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().umul_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32MulOverflowS | Operator::I64MulOverflowS => {
+            let (arg1, arg2) = state.pop2();
+            let (result, oflow) = builder.ins().smul_overflow(arg1, arg2);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+
+        Operator::I32AddWithCarryS | Operator::I64AddWithCarryS => {
+            let (arg1, arg2, arg3) = state.pop3();
+            let arg3 = builder.ins().ireduce(I8, arg3);
+            let (result, oflow) = builder.ins().sadd_overflow_cin(arg1, arg2, arg3);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32AddWithCarryU | Operator::I64AddWithCarryU => {
+            let (arg1, arg2, arg3) = state.pop3();
+            let arg3 = builder.ins().ireduce(I8, arg3);
+            let (result, oflow) = builder.ins().uadd_overflow_cin(arg1, arg2, arg3);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+
+        Operator::I32SubWithCarryS | Operator::I64SubWithCarryS => {
+            let (arg1, arg2, arg3) = state.pop3();
+            let arg3 = builder.ins().ireduce(I8, arg3);
+            let (result, oflow) = builder.ins().ssub_overflow_bin(arg1, arg2, arg3);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+        Operator::I32SubWithCarryU | Operator::I64SubWithCarryU => {
+            let (arg1, arg2, arg3) = state.pop3();
+            let arg3 = builder.ins().ireduce(I8, arg3);
+            let (result, oflow) = builder.ins().usub_overflow_bin(arg1, arg2, arg3);
+            state.push1(result);
+            state.push1(builder.ins().uextend(I32, oflow));
+        }
+
+        Operator::I64Add128 => {
+            let (arg1, arg2, arg3, arg4) = state.pop4();
+            let arg1 = builder.ins().iconcat(arg1, arg2);
+            let arg2 = builder.ins().iconcat(arg3, arg4);
+            let result = builder.ins().iadd(arg1, arg2);
+            let (res1, res2) = builder.ins().isplit(result);
+            state.push2(res1, res2);
+        }
+
+        Operator::I64Sub128 => {
+            let (arg1, arg2, arg3, arg4) = state.pop4();
+            let arg1 = builder.ins().iconcat(arg1, arg2);
+            let arg2 = builder.ins().iconcat(arg3, arg4);
+            let result = builder.ins().isub(arg1, arg2);
+            let (res1, res2) = builder.ins().isplit(result);
+            state.push2(res1, res2);
+        }
+
+        Operator::I64Mul128 => {
+            let (arg1, arg2, arg3, arg4) = state.pop4();
+            let arg1 = builder.ins().iconcat(arg1, arg2);
+            let arg2 = builder.ins().iconcat(arg3, arg4);
+            let result = builder.ins().imul(arg1, arg2);
+            let (res1, res2) = builder.ins().isplit(result);
+            state.push2(res1, res2);
+        }
+
+        Operator::I64Lt128S => translate_icmp128(IntCC::SignedLessThan, builder, state),
+        Operator::I64Lt128U => translate_icmp128(IntCC::UnsignedLessThan, builder, state),
+        Operator::I64Gt128S => translate_icmp128(IntCC::SignedGreaterThan, builder, state),
+        Operator::I64Gt128U => translate_icmp128(IntCC::UnsignedGreaterThan, builder, state),
+        Operator::I64Le128S => translate_icmp128(IntCC::SignedLessThanOrEqual, builder, state),
+        Operator::I64Le128U => translate_icmp128(IntCC::UnsignedLessThanOrEqual, builder, state),
+        Operator::I64Ge128S => translate_icmp128(IntCC::SignedGreaterThanOrEqual, builder, state),
+        Operator::I64Ge128U => translate_icmp128(IntCC::UnsignedGreaterThanOrEqual, builder, state),
     };
     Ok(())
 }
@@ -3028,6 +3161,14 @@ fn translate_icmp(cc: IntCC, builder: &mut FunctionBuilder, state: &mut FuncTran
     let (arg0, arg1) = state.pop2();
     let val = builder.ins().icmp(cc, arg0, arg1);
     state.push1(builder.ins().uextend(I32, val));
+}
+
+fn translate_icmp128(cc: IntCC, builder: &mut FunctionBuilder, state: &mut FuncTranslationState) {
+    let (arg1, arg2, arg3, arg4) = state.pop4();
+    let arg1 = builder.ins().iconcat(arg1, arg2);
+    let arg2 = builder.ins().iconcat(arg3, arg4);
+    let result = builder.ins().icmp(cc, arg1, arg2);
+    state.push1(builder.ins().uextend(I32, result));
 }
 
 fn translate_atomic_rmw<FE: FuncEnvironment + ?Sized>(
