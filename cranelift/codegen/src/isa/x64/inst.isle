@@ -2543,7 +2543,7 @@
 (rule (x64_add_with_flags_paired ty src1 src2)
       (let ((dst WritableGpr (temp_writable_gpr)))
         (ProducesFlags.ProducesFlagsReturnsResultWithConsumer
-         (MInst.AluRmiR (operand_size_of_type_32_64 ty)
+         (MInst.AluRmiR (raw_operand_size_of_type ty)
                         (AluRmiROpcode.Add)
                         src1
                         src2
@@ -2583,11 +2583,11 @@
          dst)))
 
 ;; Helper for creating `adc` instructions.
-(decl x64_adc_paired (Type Gpr GprMemImm) ConsumesFlags)
+(decl x64_adc_paired (Type Gpr GprMemImm) ConsumesAndProducesFlags)
 (rule (x64_adc_paired ty src1 src2)
       (let ((dst WritableGpr (temp_writable_gpr)))
-        (ConsumesFlags.ConsumesFlagsReturnsResultWithProducer
-         (MInst.AluRmiR (operand_size_of_type_32_64 ty)
+        (ConsumesAndProducesFlags.ReturnsResultWithProducer
+         (MInst.AluRmiR (raw_operand_size_of_type ty)
                         (AluRmiROpcode.Adc)
                         src1
                         src2
@@ -2615,11 +2615,11 @@
          dst)))
 
 ;; Helper for creating `sbb` instructions.
-(decl x64_sbb_paired (Type Gpr GprMemImm) ConsumesFlags)
+(decl x64_sbb_paired (Type Gpr GprMemImm) ConsumesAndProducesFlags)
 (rule (x64_sbb_paired ty src1 src2)
       (let ((dst WritableGpr (temp_writable_gpr)))
-        (ConsumesFlags.ConsumesFlagsReturnsResultWithProducer
-         (MInst.AluRmiR (operand_size_of_type_32_64 ty)
+        (ConsumesAndProducesFlags.ReturnsResultWithProducer
+         (MInst.AluRmiR (raw_operand_size_of_type ty)
                         (AluRmiROpcode.Sbb)
                         src1
                         src2
@@ -4886,41 +4886,60 @@
 ;; For I128 values (held in two GPRs), the instruction sequences depend on what
 ;; kind of condition is tested.
 (rule 4 (emit_cmp cc a @ (value_type $I128) b)
-      (let ((a_lo Gpr (value_regs_get_gpr a 0))
-            (a_hi Gpr (value_regs_get_gpr a 1))
-            (b_lo Gpr (value_regs_get_gpr b 0))
-            (b_hi Gpr (value_regs_get_gpr b 1)))
-      (emit_cmp_i128 cc a_hi a_lo b_hi b_lo)))
+        (emit_cmp_i128 cc a b))
 
-(decl emit_cmp_i128 (CC Gpr Gpr Gpr Gpr) IcmpCondResult)
+(decl emit_cmp_i128 (CC Value Value) IcmpCondResult)
 ;; Eliminate cases which compare something "or equal" by swapping arguments.
-(rule 2 (emit_cmp_i128 (CC.NLE) a_hi a_lo b_hi b_lo)
-        (emit_cmp_i128 (CC.L)   b_hi b_lo a_hi a_lo))
-(rule 2 (emit_cmp_i128 (CC.LE)  a_hi a_lo b_hi b_lo)
-        (emit_cmp_i128 (CC.NL)  b_hi b_lo a_hi a_lo))
-(rule 2 (emit_cmp_i128 (CC.NBE) a_hi a_lo b_hi b_lo)
-        (emit_cmp_i128 (CC.B)   b_hi b_lo a_hi a_lo))
-(rule 2 (emit_cmp_i128 (CC.BE)  a_hi a_lo b_hi b_lo)
-        (emit_cmp_i128 (CC.NB)  b_hi b_lo a_hi a_lo))
+(rule 3 (emit_cmp_i128 (CC.NLE) a b) (emit_cmp_i128 (CC.L)   b a))
+(rule 3 (emit_cmp_i128 (CC.LE)  a b) (emit_cmp_i128 (CC.NL)  b a))
+(rule 3 (emit_cmp_i128 (CC.NBE) a b) (emit_cmp_i128 (CC.B)   b a))
+(rule 3 (emit_cmp_i128 (CC.BE)  a b) (emit_cmp_i128 (CC.NB)  b a))
 
 ;; 128-bit strict equality/inequality can't be easily tested using subtraction
 ;; but we can quickly determine whether any bits are different instead.
-(rule 1 (emit_cmp_i128 (cc_nz_or_z cc) a_hi a_lo b_hi b_lo)
-        (let ((same_lo Reg (x64_xor $I64 a_lo b_lo))
-              (same_hi Reg (x64_xor $I64 a_hi b_hi)))
-          (icmp_cond_result
-            (x64_alurmi_flags_side_effect (AluRmiROpcode.Or) $I64 same_lo same_hi)
-            cc)))
+(rule 1 (emit_cmp_i128 (cc_nz_or_z cc) a b)
+  (let ((a ValueRegs a)
+        (b ValueRegs b))
+    (emit_cmp_i128_nz_or_z cc
+      (value_regs_get_gpr a 0) (value_regs_get_gpr a 1)
+      (value_regs_get_gpr b 0) (value_regs_get_gpr b 1))))
+(rule 2 (emit_cmp_i128 (cc_nz_or_z cc) a (iconcat b_lo b_hi))
+  (let ((a ValueRegs a))
+    (emit_cmp_i128_nz_or_z cc
+      (value_regs_get_gpr a 0) (value_regs_get_gpr a 1)
+      b_lo b_hi)))
+
+(decl emit_cmp_i128_nz_or_z (CC Gpr Gpr GprMemImm GprMemImm) IcmpCondResult)
+(rule (emit_cmp_i128_nz_or_z cc a_lo a_hi b_lo b_hi)
+      (let ((same_lo Reg (x64_xor $I64 a_lo b_lo))
+            (same_hi Reg (x64_xor $I64 a_hi b_hi)))
+        (icmp_cond_result
+          (x64_alurmi_flags_side_effect (AluRmiROpcode.Or) $I64 same_lo same_hi)
+          cc)))
+
 
 ;; The only cases left are L/NL/B/NB which we can implement with a sub/sbb
 ;; sequence. But since we don't care about anything but the flags we can
 ;; replace the sub with cmp, which avoids clobbering one of the registers.
-(rule 0 (emit_cmp_i128 cc a_hi a_lo b_hi b_lo)
-        (icmp_cond_result
-          (produces_flags_concat
-            (x64_cmp (OperandSize.Size64) a_lo b_lo)
-            (x64_alurmi_flags_side_effect (AluRmiROpcode.Sbb) $I64 a_hi b_hi))
-          cc))
+(rule -1 (emit_cmp_i128 cc a b)
+  (let ((a ValueRegs a)
+        (b ValueRegs b))
+    (emit_cmp_i128_sbb cc
+      (value_regs_get_gpr a 0) (value_regs_get_gpr a 1)
+      (value_regs_get_gpr b 0) (value_regs_get_gpr b 1))))
+(rule 0 (emit_cmp_i128 cc a (iconcat b_lo b_hi))
+  (let ((a ValueRegs a))
+    (emit_cmp_i128_sbb cc
+      (value_regs_get_gpr a 0) (value_regs_get_gpr a 1)
+      b_lo b_hi)))
+
+(decl emit_cmp_i128_sbb (CC Gpr Gpr GprMemImm GprMemImm) IcmpCondResult)
+(rule (emit_cmp_i128_sbb cc a_lo a_hi b_lo b_hi)
+      (icmp_cond_result
+        (produces_flags_concat
+          (x64_cmp (OperandSize.Size64) a_lo b_lo)
+          (x64_alurmi_flags_side_effect (AluRmiROpcode.Sbb) $I64 a_hi b_hi))
+        cc))
 
 (type FcmpCondResult
       (enum

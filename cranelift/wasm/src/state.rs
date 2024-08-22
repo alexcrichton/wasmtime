@@ -294,6 +294,12 @@ impl FuncTranslationState {
         self.stack.push(val);
     }
 
+    /// Push two values.
+    pub(crate) fn push2(&mut self, val1: Value, val2: Value) {
+        self.stack.push(val1);
+        self.stack.push(val2);
+    }
+
     /// Push multiple values.
     pub(crate) fn pushn(&mut self, vals: &[Value]) {
         self.stack.extend_from_slice(vals);
@@ -327,6 +333,15 @@ impl FuncTranslationState {
         let v2 = self.stack.pop().unwrap();
         let v1 = self.stack.pop().unwrap();
         (v1, v2, v3)
+    }
+
+    /// Pop four values. Return them in the order they were pushed.
+    pub(crate) fn pop4(&mut self) -> (Value, Value, Value, Value) {
+        let v4 = self.stack.pop().unwrap();
+        let v3 = self.stack.pop().unwrap();
+        let v2 = self.stack.pop().unwrap();
+        let v1 = self.stack.pop().unwrap();
+        (v1, v2, v3, v4)
     }
 
     /// Helper to ensure the stack size is at least as big as `n`; note that due to

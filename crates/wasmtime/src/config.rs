@@ -816,6 +816,12 @@ impl Config {
         self
     }
 
+    /// TODO
+    pub fn wasm_alex(&mut self, enable: bool) -> &mut Self {
+        self.wasm_feature(WasmFeatures::ALEX, enable);
+        self
+    }
+
     /// Configures whether the [WebAssembly Garbage Collection
     /// proposal][proposal] will be enabled for compilation.
     ///

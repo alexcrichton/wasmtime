@@ -120,12 +120,13 @@
 
 ;;;; Helpers for `*_overflow` ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(decl output_regs_as_pair (ValueRegs) InstOutput)
+(rule (output_regs_as_pair results)
+        (output_pair (value_regs_get results 0)
+                     (value_regs_get results 1)))
 (decl construct_overflow_op (CC ProducesFlags) InstOutput)
 (rule (construct_overflow_op cc inst)
-      (let ((results ValueRegs (with_flags inst
-                                           (x64_setcc_paired cc))))
-        (output_pair (value_regs_get results 0)
-                     (value_regs_get results 1))))
+      (output_regs_as_pair (with_flags inst (x64_setcc_paired cc))))
 
 (decl construct_overflow_op_alu (Type CC AluRmiROpcode Gpr GprMemImm) InstOutput)
 (rule (construct_overflow_op_alu ty cc alu_op src1 src2)
@@ -1068,12 +1069,26 @@
 ;; operands and producing a 128-bit result, which exactly matches the semantics
 ;; of widening 64-bit inputs to 128-bit and then multiplying them. That means
 ;; that these cases can get some some simpler codegen.
-(rule 5 (lower (has_type $I128 (imul (uextend x @ (value_type $I64))
+(rule 6 (lower (has_type $I128 (imul (uextend x @ (value_type $I64))
                                      (uextend y @ (value_type $I64)))))
         (x64_mul $I64 $false x y))
-(rule 5 (lower (has_type $I128 (imul (sextend x @ (value_type $I64))
+(rule 6 (lower (has_type $I128 (imul (sextend x @ (value_type $I64))
                                      (sextend y @ (value_type $I64)))))
         (x64_mul $I64 $true x y))
+
+(rule 5 (lower (has_type $I128 (imul x (uextend y @ (value_type $I64)))))
+      (let ((x ValueRegs x)
+            (x_lo Gpr (value_regs_get_gpr x 0))
+            (x_hi Gpr (value_regs_get_gpr x 1))
+            ;; hi_lo = mul x_hi, y_lo
+            (hi_lo Gpr (x64_imul $I64 x_hi y))
+            ;; dst_lo:hi_lolo = x64_mul x_lo, y_lo
+            (mul_regs ValueRegs (x64_mul $I64 $false x_lo y))
+            (dst_lo Gpr (value_regs_get_gpr mul_regs 0))
+            (hi_lolo Gpr (value_regs_get_gpr mul_regs 1))
+            ;; dst_hi = add hilo_hilo, hi_lolo
+            (dst_hi Gpr (x64_add $I64 hi_lo hi_lolo)))
+        (value_gprs dst_lo dst_hi)))
 
 ;; SSE.
 
@@ -4917,3 +4932,40 @@
 
 (rule (lower (nop))
       (invalid_reg))
+
+;; Rules for `{s,u}add_overflow_cin` ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(rule (lower i @ (uadd_overflow_cin a @ (value_type ty) b c))
+  (let (
+      (sub_flags ProducesFlags (x64_add_with_flags_paired $I8 c (RegMemImm.Imm 0xff)))
+      (adc ConsumesAndProducesFlags (x64_adc_paired ty a b))
+      (carry_flag ConsumesFlags (x64_setcc (CC.B)))
+    )
+    (output_carry_result_as_pair (with_flags_chained sub_flags adc carry_flag))))
+
+(rule (lower (sadd_overflow_cin a @ (value_type ty) b c))
+  (let (
+      (sub_flags ProducesFlags (x64_add_with_flags_paired $I8 c (RegMemImm.Imm 0xff)))
+      (adc ConsumesAndProducesFlags (x64_adc_paired ty a b))
+      (carry_flag ConsumesFlags (x64_setcc (CC.O)))
+    )
+    (output_carry_result_as_pair (with_flags_chained sub_flags adc carry_flag))))
+
+(rule (lower (usub_overflow_bin a @ (value_type ty) b c))
+  (let (
+      (sub_flags ProducesFlags (x64_add_with_flags_paired $I8 c (RegMemImm.Imm 0xff)))
+      (sbb ConsumesAndProducesFlags (x64_sbb_paired ty a b))
+      (carry_flag ConsumesFlags (x64_setcc (CC.B)))
+    )
+    (output_carry_result_as_pair (with_flags_chained sub_flags sbb carry_flag))))
+
+(rule (lower (ssub_overflow_bin a @ (value_type ty) b c))
+  (let (
+      (sub_flags ProducesFlags (x64_add_with_flags_paired $I8 c (RegMemImm.Imm 0xff)))
+      (sbb ConsumesAndProducesFlags (x64_sbb_paired ty a b))
+      (carry_flag ConsumesFlags (x64_setcc (CC.O)))
+    )
+    (output_carry_result_as_pair (with_flags_chained sub_flags sbb carry_flag))))
+
+(decl output_carry_result_as_pair (MultiReg) InstOutput)
+(rule (output_carry_result_as_pair (MultiReg.Three _ op flags)) (output_pair op flags))

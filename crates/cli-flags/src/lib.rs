@@ -272,6 +272,8 @@ wasmtime_option_group! {
         pub gc: Option<bool>,
         /// Configure support for the custom-page-sizes proposal.
         pub custom_page_sizes: Option<bool>,
+        /// TODO
+        pub alex: Option<bool>,
     }
 
     enum Wasm {
@@ -694,6 +696,9 @@ impl CommonOptions {
         }
         if let Some(enable) = self.wasm.custom_page_sizes.or(all) {
             config.wasm_custom_page_sizes(enable);
+        }
+        if let Some(enable) = self.wasm.alex.or(all) {
+            config.wasm_alex(enable);
         }
 
         macro_rules! handle_conditionally_compiled {
