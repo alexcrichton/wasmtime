@@ -136,14 +136,14 @@ where
     // different bounds checks and optimizations of those bounds checks. It is
     // intentionally written in a straightforward case-matching style that will
     // hopefully make it easy to port to ISLE one day.
-    Ok(match heap.style {
+    Ok(match BoundsCheck::classify(env, heap, offset_and_size) {
         // ====== Dynamic Memories ======
         //
         // 1. First special case for when `offset + access_size == 1`:
         //
         //            index + 1 > bound
         //        ==> index >= bound
-        HeapStyle::Dynamic { bound_gv } if offset_and_size == 1 => {
+        BoundsCheck::DynamicJustOneByte { bound_gv } => {
             let bound = get_dynamic_heap_bound(builder, env, heap);
             let oob = make_compare(
                 builder,
@@ -191,9 +191,7 @@ where
         //    offset immediates -- which is a common code pattern when accessing
         //    multiple fields in the same struct that is in linear memory --
         //    will all emit the same `index > bound` check, which we can GVN.
-        HeapStyle::Dynamic { bound_gv }
-            if can_use_virtual_memory && offset_and_size <= heap.offset_guard_size =>
-        {
+        BoundsCheck::DynamicOnlyCheckIndex { bound_gv } => {
             let bound = get_dynamic_heap_bound(builder, env, heap);
             let oob = make_compare(
                 builder,
@@ -223,7 +221,7 @@ where
         //
         //            index + offset + access_size > bound
         //        ==> index > bound - (offset + access_size)
-        HeapStyle::Dynamic { bound_gv } if offset_and_size <= heap.min_size.into() => {
+        BoundsCheck::DynamicLessThanMinSize { bound_gv } => {
             let bound = get_dynamic_heap_bound(builder, env, heap);
             let adjustment = offset_and_size as i64;
             let adjustment_value = builder.ins().iconst(env.pointer_type(), adjustment);
@@ -265,7 +263,7 @@ where
         //        index + offset + access_size > bound
         //
         //    And we have to handle the overflow case in the left-hand side.
-        HeapStyle::Dynamic { bound_gv } => {
+        BoundsCheck::DynamicFull { bound_gv } => {
             let access_size_val = builder
                 .ins()
                 // Explicit cast from u64 to i64: we just want the raw
@@ -317,7 +315,7 @@ where
         // 1. First special case: trap immediately if `offset + access_size >
         //    bound`, since we will end up being out-of-bounds regardless of the
         //    given `index`.
-        HeapStyle::Static { bound } if offset_and_size > bound.into() => {
+        BoundsCheck::StaticTrap => {
             assert!(
                 can_use_virtual_memory,
                 "static memories require the ability to use virtual memory"
@@ -365,12 +363,7 @@ where
         //    `u32::MAX`. This means that `index` is always either in bounds or
         //    within the guard page region, neither of which require emitting an
         //    explicit bounds check.
-        HeapStyle::Static { bound }
-            if can_use_virtual_memory
-                && heap.index_type == ir::types::I32
-                && u64::from(u32::MAX)
-                    <= u64::from(bound) + u64::from(heap.offset_guard_size) - offset_and_size =>
-        {
+        BoundsCheck::StaticNoCheck { bound } => {
             assert!(
                 can_use_virtual_memory,
                 "static memories require the ability to use virtual memory"
@@ -399,7 +392,7 @@ where
         //    Since we have to emit explicit bounds checks, we might as well be
         //    precise, not rely on the virtual memory subsystem at all, and not
         //    factor in the guard pages here.
-        HeapStyle::Static { bound } => {
+        BoundsCheck::StaticCheckBounds { bound } => {
             assert!(
                 can_use_virtual_memory,
                 "static memories require the ability to use virtual memory"
@@ -435,6 +428,190 @@ where
             ))
         }
     })
+}
+
+/// We need to emit code that will trap (or compute an address that will trap
+/// when accessed) if
+///
+///     index + offset + access_size > bound
+///
+/// or if the `index + offset + access_size` addition overflows.
+///
+/// Note that we ultimately want a 64-bit integer (we only target 64-bit
+/// architectures at the moment) and that `offset` is a `u32` and
+/// `access_size` is a `u8`. This means that we can add the latter together
+/// as `u64`s without fear of overflow, and we only have to be concerned with
+/// whether adding in `index` will overflow.
+///
+/// Finally, the following right-hand sides of the matches do have a little
+/// bit of duplicated code across them, but I think writing it this way is
+/// worth it for readability and seeing very clearly each of our cases for
+/// different bounds checks and optimizations of those bounds checks. It is
+/// intentionally written in a straightforward case-matching style that will
+/// hopefully make it easy to port to ISLE one day.
+pub enum BoundsCheck {
+    DynamicJustOneByte { bound_gv: ir::GlobalValue },
+    DynamicOnlyCheckIndex { bound_gv: ir::GlobalValue },
+    DynamicLessThanMinSize { bound_gv: ir::GlobalValue },
+    DynamicFull { bound_gv: ir::GlobalValue },
+    StaticTrap,
+    StaticNoCheck { bound: u64 },
+    StaticCheckBounds { bound: u64 },
+}
+
+impl BoundsCheck {
+    pub fn classify<Env: FuncEnvironment + ?Sized>(
+        env: &Env,
+        heap: &HeapData,
+        offset_and_size: u64,
+    ) -> Self {
+        let host_page_size_log2 = env.target_config().page_size_align_log2;
+        let can_use_virtual_memory = heap.page_size_log2 >= host_page_size_log2;
+
+        match heap.style {
+            // ====== Dynamic Memories ======
+            //
+            // 1. First special case for when `offset + access_size == 1`:
+            //
+            //            index + 1 > bound
+            //        ==> index >= bound
+            HeapStyle::Dynamic { bound_gv } if offset_and_size == 1 => {
+                BoundsCheck::DynamicJustOneByte { bound_gv }
+            }
+
+            // 2. Second special case for when we know that there are enough guard
+            //    pages to cover the offset and access size.
+            //
+            //    The precise should-we-trap condition is
+            //
+            //        index + offset + access_size > bound
+            //
+            //    However, if we instead check only the partial condition
+            //
+            //        index > bound
+            //
+            //    then the most out of bounds that the access can be, while that
+            //    partial check still succeeds, is `offset + access_size`.
+            //
+            //    However, when we have a guard region that is at least as large as
+            //    `offset + access_size`, we can rely on the virtual memory
+            //    subsystem handling these out-of-bounds errors at
+            //    runtime. Therefore, the partial `index > bound` check is
+            //    sufficient for this heap configuration.
+            //
+            //    Additionally, this has the advantage that a series of Wasm loads
+            //    that use the same dynamic index operand but different static
+            //    offset immediates -- which is a common code pattern when accessing
+            //    multiple fields in the same struct that is in linear memory --
+            //    will all emit the same `index > bound` check, which we can GVN.
+            HeapStyle::Dynamic { bound_gv }
+                if can_use_virtual_memory && offset_and_size <= heap.offset_guard_size =>
+            {
+                BoundsCheck::DynamicOnlyCheckIndex { bound_gv }
+            }
+
+            // 3. Third special case for when `offset + access_size <= min_size`.
+            //
+            //    We know that `bound >= min_size`, so we can do the following
+            //    comparison, without fear of the right-hand side wrapping around:
+            //
+            //            index + offset + access_size > bound
+            //        ==> index > bound - (offset + access_size)
+            HeapStyle::Dynamic { bound_gv } if offset_and_size <= heap.min_size.into() => {
+                BoundsCheck::DynamicLessThanMinSize { bound_gv }
+            }
+
+            // 4. General case for dynamic memories:
+            //
+            //        index + offset + access_size > bound
+            //
+            //    And we have to handle the overflow case in the left-hand side.
+            HeapStyle::Dynamic { bound_gv } => BoundsCheck::DynamicFull { bound_gv },
+
+            // ====== Static Memories ======
+            //
+            // With static memories we know the size of the heap bound at compile
+            // time.
+            //
+            // 1. First special case: trap immediately if `offset + access_size >
+            //    bound`, since we will end up being out-of-bounds regardless of the
+            //    given `index`.
+            HeapStyle::Static { bound } if offset_and_size > bound.into() => {
+                BoundsCheck::StaticTrap
+            }
+
+            // 2. Second special case for when we can completely omit explicit
+            //    bounds checks for 32-bit static memories.
+            //
+            //    First, let's rewrite our comparison to move all of the constants
+            //    to one side:
+            //
+            //            index + offset + access_size > bound
+            //        ==> index > bound - (offset + access_size)
+            //
+            //    We know the subtraction on the right-hand side won't wrap because
+            //    we didn't hit the first special case.
+            //
+            //    Additionally, we add our guard pages (if any) to the right-hand
+            //    side, since we can rely on the virtual memory subsystem at runtime
+            //    to catch out-of-bound accesses within the range `bound .. bound +
+            //    guard_size`. So now we are dealing with
+            //
+            //        index > bound + guard_size - (offset + access_size)
+            //
+            //    Note that `bound + guard_size` cannot overflow for
+            //    correctly-configured heaps, as otherwise the heap wouldn't fit in
+            //    a 64-bit memory space.
+            //
+            //    The complement of our should-this-trap comparison expression is
+            //    the should-this-not-trap comparison expression:
+            //
+            //        index <= bound + guard_size - (offset + access_size)
+            //
+            //    If we know the right-hand side is greater than or equal to
+            //    `u32::MAX`, then
+            //
+            //        index <= u32::MAX <= bound + guard_size - (offset + access_size)
+            //
+            //    This expression is always true when the heap is indexed with
+            //    32-bit integers because `index` cannot be larger than
+            //    `u32::MAX`. This means that `index` is always either in bounds or
+            //    within the guard page region, neither of which require emitting an
+            //    explicit bounds check.
+            HeapStyle::Static { bound }
+                if can_use_virtual_memory
+                    && heap.index_type == ir::types::I32
+                    && u64::from(u32::MAX)
+                        <= u64::from(bound) + u64::from(heap.offset_guard_size)
+                            - offset_and_size =>
+            {
+                assert!(
+                    can_use_virtual_memory,
+                    "static memories require the ability to use virtual memory"
+                );
+                BoundsCheck::StaticNoCheck { bound }
+            }
+
+            // 3. General case for static memories.
+            //
+            //    We have to explicitly test whether
+            //
+            //        index > bound - (offset + access_size)
+            //
+            //    and trap if so.
+            //
+            //    Since we have to emit explicit bounds checks, we might as well be
+            //    precise, not rely on the virtual memory subsystem at all, and not
+            //    factor in the guard pages here.
+            HeapStyle::Static { bound } => {
+                assert!(
+                    can_use_virtual_memory,
+                    "static memories require the ability to use virtual memory"
+                );
+                BoundsCheck::StaticCheckBounds { bound }
+            }
+        }
+    }
 }
 
 /// Get the bound of a dynamic heap as an `ir::Value`.
@@ -529,7 +706,7 @@ fn cast_index_to_pointer_ty(
 /// Which facts do we want to emit for proof-carrying code, if any, on
 /// address computations?
 #[derive(Clone, Copy, Debug)]
-enum AddrPcc {
+pub(super) enum AddrPcc {
     /// A 32-bit static memory with the given size.
     Static32(ir::MemoryType, u64),
     /// Dynamic bounds-check, with actual memory size (the `GlobalValue`)
@@ -618,7 +795,7 @@ fn explicit_check_oob_condition_and_compute_addr(
 /// It is the caller's responsibility to ensure that any necessary bounds and
 /// overflow checks are emitted, and that the resulting address is never used
 /// unless they succeed.
-fn compute_addr(
+pub(super) fn compute_addr(
     pos: &mut FuncCursor,
     heap: &HeapData,
     addr_ty: ir::Type,

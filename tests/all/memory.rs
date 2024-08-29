@@ -738,3 +738,81 @@ fn get_memory_type_with_custom_page_size_from_wasm(config: &mut Config) -> Resul
 
     Ok(())
 }
+
+#[wasmtime_test]
+#[cfg_attr(miri, ignore)]
+fn static_memcpy_size(config: &mut Config) -> Result<()> {
+    let engine = Engine::new(&config)?;
+    let mut store = Store::new(&engine, ());
+
+    const N: usize = 128;
+    let mut module = String::from("(module (memory (export \"memory\") 1)");
+    for i in 0..=N {
+        module.push_str(&format!(
+            r#"(func (export "{i}") (param i32 i32)
+                    (memory.copy (local.get 0) (local.get 1) (i32.const {i}))
+            )"#
+        ));
+    }
+    module.push_str(")");
+
+    let module = Module::new(&engine, &module)?;
+
+    let instance = Instance::new(&mut store, &module, &[])?;
+    let memory = instance.get_memory(&mut store, "memory").unwrap();
+
+    for i in 0..=N {
+        println!("testing memory.copy {i}");
+        let func = instance.get_typed_func::<(u32, u32), ()>(&mut store, &i.to_string())?;
+
+        for (dst, src) in [(0, 200), (200, 0), (0, 0), (0, 1), (1, 0), (7, 129)] {
+            println!("\tsrc={src}, dst={dst}");
+            let data = memory.data_mut(&mut store);
+            data.fill(0);
+            for (i, dst) in data[src..][..i].iter_mut().enumerate() {
+                *dst = (i + 1) as u8;
+            }
+
+            func.call(&mut store, (dst as u32, src as u32)).unwrap();
+
+            for (j, slot) in memory.data(&store).iter().enumerate() {
+                let expected = if dst <= j && j < dst + i {
+                    (j - dst + 1) as u8
+                } else if src <= j && j < src + i {
+                    (j - src + 1) as u8
+                } else {
+                    0
+                };
+                assert_eq!(*slot, expected, "wrong value at byte {j}");
+            }
+        }
+
+        // right on the limit of memory is ok
+        assert!(func.call(&mut store, (0, 65536 - (i as u32))).is_ok());
+        assert!(func.call(&mut store, (65536 - (i as u32), 0)).is_ok());
+
+        // Test that a bunch of addresses that trap. Additionally assert that
+        // memory never changes throughout these tests because a trapping
+        // `memory.copy` should have no side effect.
+        let traps = [65537, 65537 - (i as u32)]
+            .into_iter()
+            .chain((17..32).map(|i| 1 << i));
+
+        let data = memory.data_mut(&mut store);
+        data[0] = 1;
+        let image = data.to_vec();
+
+        for trap in traps {
+            println!("\ttrap {trap:#x}");
+            assert!(func.call(&mut store, (0, trap)).is_err());
+            assert!(func.call(&mut store, (trap, 0)).is_err());
+
+            assert!(
+                memory.data(&store) == image,
+                "trap should not have modified memory"
+            );
+        }
+    }
+
+    Ok(())
+}

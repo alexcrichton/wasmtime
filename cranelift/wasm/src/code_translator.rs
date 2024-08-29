@@ -1498,21 +1498,7 @@ pub fn translate_operator<FE: FuncEnvironment + ?Sized>(
         Operator::MemoryCopy { src_mem, dst_mem } => {
             let src_index = MemoryIndex::from_u32(*src_mem);
             let dst_index = MemoryIndex::from_u32(*dst_mem);
-            let src_heap = state.get_heap(builder.func, *src_mem, environ)?;
-            let dst_heap = state.get_heap(builder.func, *dst_mem, environ)?;
-            let len = state.pop1();
-            let src_pos = state.pop1();
-            let dst_pos = state.pop1();
-            environ.translate_memory_copy(
-                builder.cursor(),
-                src_index,
-                src_heap,
-                dst_index,
-                dst_heap,
-                dst_pos,
-                src_pos,
-                len,
-            )?;
+            translate_memory_copy(builder, state, environ, src_index, dst_index)?;
         }
         Operator::MemoryFill { mem } => {
             let heap_index = MemoryIndex::from_u32(*mem);
@@ -3720,4 +3706,144 @@ fn bitcast_wasm_params<FE: FuncEnvironment + ?Sized>(
         flags.set_endianness(ir::Endianness::Little);
         *arg = builder.ins().bitcast(t, flags, *arg);
     }
+}
+
+fn translate_memory_copy<FE: FuncEnvironment + ?Sized>(
+    builder: &mut FunctionBuilder,
+    state: &mut FuncTranslationState,
+    environ: &mut FE,
+    src_index: MemoryIndex,
+    dst_index: MemoryIndex,
+) -> WasmResult<()> {
+    let src_heap = state.get_heap(builder.func, src_index.as_u32(), environ)?;
+    let dst_heap = state.get_heap(builder.func, dst_index.as_u32(), environ)?;
+    let len = state.pop1();
+    let src_pos = state.pop1();
+    let dst_pos = state.pop1();
+
+    // Attempt to perform an inline memory.copy if `len` is a small constant. If
+    // that fails though for whatever reason this falls back to a the
+    // environment's definition of a memory copy, for example a libcall.
+    if translate_memory_copy_small(
+        builder, state, environ, src_index, dst_index, src_pos, dst_pos, len,
+    )? {
+        return Ok(());
+    }
+
+    environ.translate_memory_copy(
+        builder.cursor(),
+        src_index,
+        src_heap,
+        dst_index,
+        dst_heap,
+        dst_pos,
+        src_pos,
+        len,
+    )
+}
+
+/// Attempts to translate `memory.copy` if `len` is a statically known small
+/// constant size.
+///
+/// This returns `true` if the `memory.copy` was translated or `false` if it
+/// couldn't be translated. If `false` is returned no code is generated.
+fn translate_memory_copy_small<FE: FuncEnvironment + ?Sized>(
+    builder: &mut FunctionBuilder,
+    state: &mut FuncTranslationState,
+    environ: &mut FE,
+    src_index: MemoryIndex,
+    dst_index: MemoryIndex,
+    src_pos: Value,
+    dst_pos: Value,
+    len: Value,
+) -> WasmResult<bool> {
+    const MAX_INLINE_COPY: u64 = 64;
+
+    // First try to see if `len` is a constant value.
+    let len_inst = match builder.func.dfg.value_def(len) {
+        ir::ValueDef::Result(inst, 0) => inst,
+        _ => return Ok(false),
+    };
+    let src_heap = state.get_heap(builder.func, src_index.as_u32(), environ)?;
+    let dst_heap = state.get_heap(builder.func, dst_index.as_u32(), environ)?;
+    let len_imm = match builder.func.dfg.insts[len_inst] {
+        ir::InstructionData::UnaryImm {
+            opcode: ir::Opcode::Iconst,
+            imm,
+        } => imm,
+        _ => return Ok(false),
+    };
+    let len_value = len_imm.bits() as u64;
+
+    // Ignore 0-length memory.copy and also copies that are considered large
+    // enough to hit a libcall.
+    if len_value <= 0 || len_value > MAX_INLINE_COPY {
+        return Ok(false);
+    }
+
+    // Double-check that both the source and destination memory do not need
+    // bounds checks. If bounds checks are needed just defer to the libcall.
+    let src_heap = &environ.heaps()[src_heap];
+    let dst_heap = &environ.heaps()[dst_heap];
+    match bounds_checks::BoundsCheck::classify(environ, src_heap, len_value) {
+        bounds_checks::BoundsCheck::StaticNoCheck { .. } => {}
+        _ => return Ok(false),
+    }
+    match bounds_checks::BoundsCheck::classify(environ, dst_heap, len_value) {
+        bounds_checks::BoundsCheck::StaticNoCheck { .. } => {}
+        _ => return Ok(false),
+    }
+    let len_value = u8::try_from(len_value).unwrap();
+
+    // Translate `src_pos` and `dst_pos` to native addresses using the
+    // `prepare_addr` helper.
+    let src_dummy_memarg = MemArg {
+        align: 0,
+        max_align: 0,
+        memory: src_index.as_u32(),
+        offset: 0,
+    };
+    state.push1(src_pos);
+    let (src_flags, _, src_addr) =
+        match prepare_addr(&src_dummy_memarg, len_value, builder, state, environ)? {
+            Reachability::Reachable(a) => a,
+            Reachability::Unreachable => unreachable!(),
+        };
+    let dst_dummy_memarg = MemArg {
+        align: 0,
+        max_align: 0,
+        memory: dst_index.as_u32(),
+        offset: 0,
+    };
+    state.push1(dst_pos);
+    let (dst_flags, _, dst_addr) =
+        match prepare_addr(&dst_dummy_memarg, len_value, builder, state, environ)? {
+            Reachability::Reachable(a) => a,
+            Reachability::Unreachable => unreachable!(),
+        };
+
+    // Perform the inline memory.copy by loading all values into registers,
+    // favoring vector registers which can hold more data per register, and then
+    // store everything. Note that stores happen in reverse order to ensure that
+    // no intermediate copies happen if a trap happens (if the last store
+    // succeeds all prior stores should succeed too).
+    //
+    // Here large register widths are loaded first all the way down to
+    // single-byte loads meaning that this should load at most one value for
+    // each size class less than 16 bytes.
+    let mut remaining = u32::from(len_value);
+    let mut values = Vec::new();
+    let mut offset = 0u8;
+    for ty in [I8X16, I64, I32, I16, I8] {
+        while remaining >= ty.bytes() {
+            remaining -= ty.bytes();
+            values.push((offset, builder.ins().load(ty, src_flags, src_addr, offset)));
+            offset += ty.bytes() as u8;
+        }
+    }
+    for (offset, value) in values.into_iter().rev() {
+        builder.ins().store(dst_flags, value, dst_addr, offset);
+    }
+
+    Ok(true)
 }
