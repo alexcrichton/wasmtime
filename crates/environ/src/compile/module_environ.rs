@@ -1137,7 +1137,7 @@ impl ModuleTranslation<'_> {
         // This should be large enough to support very large Wasm
         // modules with huge funcref tables, but small enough to avoid
         // OOMs or DoS on truly sparse tables.
-        const MAX_FUNC_TABLE_SIZE: u32 = 1024 * 1024;
+        const MAX_FUNC_TABLE_SIZE: u64 = 1024 * 1024;
 
         // First convert any element-initialized tables to images of just that
         // single function if the minimum size of the table allows doing so.
@@ -1194,7 +1194,8 @@ impl ModuleTranslation<'_> {
             // include it in the statically-built array of initial
             // contents.
             let offset = match segment.offset.ops() {
-                &[ConstOp::I32Const(offset)] => offset.unsigned(),
+                &[ConstOp::I32Const(offset)] => offset.unsigned() as u64,
+                &[ConstOp::I64Const(offset)] => offset.unsigned(),
                 _ => break,
             };
 

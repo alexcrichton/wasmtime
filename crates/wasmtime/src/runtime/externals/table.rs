@@ -111,7 +111,12 @@ impl Table {
             let table = Table::from_wasmtime_table(wasmtime_export, store);
             let wasmtime_table = table.wasmtime_table(store, iter::empty());
             (*wasmtime_table)
-                .fill(store.gc_store_mut()?, 0, init, ty.minimum())
+                .fill(
+                    store.gc_store_mut()?,
+                    0,
+                    init,
+                    ty.minimum().try_into().unwrap(),
+                )
                 .err2anyhow()?;
             Ok(table)
         }
@@ -135,7 +140,7 @@ impl Table {
     fn wasmtime_table(
         &self,
         store: &mut StoreOpaque,
-        lazy_init_range: impl Iterator<Item = u32>,
+        lazy_init_range: impl Iterator<Item = u64>,
     ) -> *mut runtime::Table {
         unsafe {
             let export = &store[self.0];
@@ -153,7 +158,7 @@ impl Table {
     /// # Panics
     ///
     /// Panics if `store` does not own this table.
-    pub fn get(&self, mut store: impl AsContextMut, index: u32) -> Option<Ref> {
+    pub fn get(&self, mut store: impl AsContextMut, index: u64) -> Option<Ref> {
         let mut store = AutoAssertNoGc::new(store.as_context_mut().0);
         let table = self.wasmtime_table(&mut store, iter::once(index));
         unsafe {
@@ -203,14 +208,14 @@ impl Table {
     /// # Panics
     ///
     /// Panics if `store` does not own this table.
-    pub fn set(&self, mut store: impl AsContextMut, index: u32, val: Ref) -> Result<()> {
+    pub fn set(&self, mut store: impl AsContextMut, index: u64, val: Ref) -> Result<()> {
         let store = store.as_context_mut().0;
         let ty = self.ty(&store);
         let val = val.into_table_element(store, ty.element())?;
         let table = self.wasmtime_table(store, iter::empty());
         unsafe {
             (*table)
-                .set(index, val)
+                .set(index.try_into().unwrap(), val)
                 .map_err(|()| anyhow!("table element index out of bounds"))
         }
     }
@@ -220,12 +225,12 @@ impl Table {
     /// # Panics
     ///
     /// Panics if `store` does not own this table.
-    pub fn size(&self, store: impl AsContext) -> u32 {
+    pub fn size(&self, store: impl AsContext) -> u64 {
         self.internal_size(store.as_context().0)
     }
 
-    pub(crate) fn internal_size(&self, store: &StoreOpaque) -> u32 {
-        unsafe { (*store[self.0].definition).current_elements }
+    pub(crate) fn internal_size(&self, store: &StoreOpaque) -> u64 {
+        unsafe { (*store[self.0].definition).current_elements as u64 }
     }
 
     /// Grows the size of this table by `delta` more elements, initialization
@@ -249,7 +254,7 @@ impl Table {
     /// (see also: [`Store::limiter_async`](`crate::Store::limiter_async`)).
     /// When using an async resource limiter, use [`Table::grow_async`]
     /// instead.
-    pub fn grow(&self, mut store: impl AsContextMut, delta: u32, init: Ref) -> Result<u32> {
+    pub fn grow(&self, mut store: impl AsContextMut, delta: u64, init: Ref) -> Result<u64> {
         let store = store.as_context_mut().0;
         let ty = self.ty(&store);
         let init = init.into_table_element(store, ty.element())?;
@@ -259,7 +264,7 @@ impl Table {
                 Some(size) => {
                     let vm = (*table).vmtable();
                     *store[self.0].definition = vm;
-                    Ok(size)
+                    Ok(size as u64)
                 }
                 None => bail!("failed to grow table by `{}`", delta),
             }
@@ -277,9 +282,9 @@ impl Table {
     pub async fn grow_async<T>(
         &self,
         mut store: impl AsContextMut<Data = T>,
-        delta: u32,
+        delta: u64,
         init: Ref,
-    ) -> Result<u32>
+    ) -> Result<u64>
     where
         T: Send,
     {
@@ -308,10 +313,10 @@ impl Table {
     pub fn copy(
         mut store: impl AsContextMut,
         dst_table: &Table,
-        dst_index: u32,
+        dst_index: u64,
         src_table: &Table,
-        src_index: u32,
-        len: u32,
+        src_index: u64,
+        len: u64,
     ) -> Result<()> {
         let store = store.as_context_mut().0;
 
@@ -326,7 +331,7 @@ impl Table {
             )?;
 
         let dst_table = dst_table.wasmtime_table(store, iter::empty());
-        let src_range = src_index..(src_index.checked_add(len).unwrap_or(u32::MAX));
+        let src_range = src_index..(src_index.checked_add(len).unwrap_or(u64::MAX));
         let src_table = src_table.wasmtime_table(store, src_range);
         unsafe {
             runtime::Table::copy(
@@ -358,7 +363,7 @@ impl Table {
     /// # Panics
     ///
     /// Panics if `store` does not own either `dst_table` or `src_table`.
-    pub fn fill(&self, mut store: impl AsContextMut, dst: u32, val: Ref, len: u32) -> Result<()> {
+    pub fn fill(&self, mut store: impl AsContextMut, dst: u64, val: Ref, len: u64) -> Result<()> {
         let store = store.as_context_mut().0;
         let ty = self.ty(&store);
         let val = val.into_table_element(store, ty.element())?;

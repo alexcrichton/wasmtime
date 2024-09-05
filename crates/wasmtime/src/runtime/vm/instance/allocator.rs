@@ -543,7 +543,7 @@ fn check_table_init_bounds(instance: &mut Instance, module: &Module) -> Result<(
         let end = start.checked_add(usize::try_from(segment.elements.len()).unwrap());
 
         match end {
-            Some(end) if end <= table.size() as usize => {
+            Some(end) if end <= table.size() => {
                 // Initializer is in bounds
             }
             _ => {
@@ -618,7 +618,7 @@ fn initialize_tables(instance: &mut Instance, module: &Module) -> Result<()> {
                 &mut const_evaluator,
                 segment.table_index,
                 &segment.elements,
-                start.get_u32(),
+                start.get_u64(),
                 0,
                 segment.elements.len(),
             )

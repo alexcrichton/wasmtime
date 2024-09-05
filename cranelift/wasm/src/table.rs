@@ -8,7 +8,7 @@ pub enum TableSize {
     /// Non-resizable table.
     Static {
         /// Non-resizable tables have a constant size known at compile time.
-        bound: u32,
+        bound: u64,
     },
     /// Resizable table.
     Dynamic {
@@ -22,7 +22,7 @@ impl TableSize {
     /// Get a CLIF value representing the current bounds of this table.
     pub fn bound(&self, mut pos: FuncCursor, index_ty: ir::Type) -> ir::Value {
         match *self {
-            TableSize::Static { bound } => pos.ins().iconst(index_ty, Imm64::new(i64::from(bound))),
+            TableSize::Static { bound } => pos.ins().iconst(index_ty, Imm64::new(bound as i64)),
             TableSize::Dynamic { bound_gv } => pos.ins().global_value(index_ty, bound_gv),
         }
     }

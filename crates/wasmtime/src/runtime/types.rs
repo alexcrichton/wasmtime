@@ -2467,10 +2467,42 @@ impl TableType {
             element,
             ty: Table {
                 wasm_ty,
-                minimum: min,
-                maximum: max,
+                minimum: min as u64,
+                maximum: max.map(|x| x as u64),
+                table64: false,
             },
         }
+    }
+
+    /// Crates a new descriptor for a 64-bit table.
+    ///
+    /// Note that 64-bit tables are part of the memory64 proposal for
+    /// WebAssembly which is not standardized yet.
+    pub fn new64(element: RefType, min: u64, max: Option<u64>) -> TableType {
+        let wasm_ty = element.to_wasm_type();
+
+        debug_assert!(
+            wasm_ty.is_canonicalized_for_runtime_usage(),
+            "should be canonicalized for runtime usage: {wasm_ty:?}"
+        );
+
+        TableType {
+            element,
+            ty: Table {
+                wasm_ty,
+                minimum: min,
+                maximum: max,
+                table64: true,
+            },
+        }
+    }
+
+    /// Returns whether or not this table is a 64-bit table.
+    ///
+    /// Note that 64-bit tables are part of the memory64 proposal for
+    /// WebAssembly which is not standardized yet.
+    pub fn is_64(&self) -> bool {
+        self.ty.table64
     }
 
     /// Returns the element value type of this table.
@@ -2479,7 +2511,7 @@ impl TableType {
     }
 
     /// Returns minimum number of elements this table must have
-    pub fn minimum(&self) -> u32 {
+    pub fn minimum(&self) -> u64 {
         self.ty.minimum
     }
 
@@ -2487,7 +2519,7 @@ impl TableType {
     /// can have.
     ///
     /// If this returns `None` then the table is not limited in size.
-    pub fn maximum(&self) -> Option<u32> {
+    pub fn maximum(&self) -> Option<u64> {
         self.ty.maximum
     }
 

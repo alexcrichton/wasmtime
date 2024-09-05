@@ -1527,9 +1527,11 @@ pub struct Table {
     /// The table elements' Wasm type.
     pub wasm_ty: WasmRefType,
     /// The minimum number of elements in the table.
-    pub minimum: u32,
+    pub minimum: u64,
     /// The maximum number of elements in the table.
-    pub maximum: Option<u32>,
+    pub maximum: Option<u64>,
+    /// Whether or not this is a 64-bit table.
+    pub table64: bool,
 }
 
 impl TypeTrace for Table {
@@ -1537,24 +1539,14 @@ impl TypeTrace for Table {
     where
         F: FnMut(EngineOrModuleTypeIndex) -> Result<(), E>,
     {
-        let Table {
-            wasm_ty,
-            minimum: _,
-            maximum: _,
-        } = self;
-        wasm_ty.trace(func)
+        self.wasm_ty.trace(func)
     }
 
     fn trace_mut<F, E>(&mut self, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&mut EngineOrModuleTypeIndex) -> Result<(), E>,
     {
-        let Table {
-            wasm_ty,
-            minimum: _,
-            maximum: _,
-        } = self;
-        wasm_ty.trace_mut(func)
+        self.wasm_ty.trace_mut(func)
     }
 }
 
@@ -1722,6 +1714,7 @@ pub trait TypeConvert {
             wasm_ty: self.convert_ref_type(ty.element_type),
             minimum: ty.initial.try_into().unwrap(),
             maximum: ty.maximum.map(|i| i.try_into().unwrap()),
+            table64: ty.table64,
         })
     }
 

@@ -160,7 +160,7 @@ pub struct StaticFuncTable {
     /// maximum size of the table.
     data: SendSyncPtr<[FuncTableElem]>,
     /// The current size of the table.
-    size: u32,
+    size: usize,
     /// Whether elements of this table are initialized lazily.
     lazy_init: bool,
 }
@@ -170,7 +170,7 @@ pub struct StaticGcRefTable {
     /// maximum size of the table.
     data: SendSyncPtr<[Option<VMGcRef>]>,
     /// The current size of the table.
-    size: u32,
+    size: usize,
 }
 
 pub enum DynamicTable {
@@ -195,7 +195,7 @@ pub struct DynamicFuncTable {
     /// vector is the current size of the table.
     elements: Vec<FuncTableElem>,
     /// Maximum size that `elements` can grow to.
-    maximum: Option<u32>,
+    maximum: Option<usize>,
     /// Whether elements of this table are initialized lazily.
     lazy_init: bool,
 }
@@ -205,7 +205,7 @@ pub struct DynamicGcRefTable {
     /// vector is the current size of the table.
     elements: Vec<Option<VMGcRef>>,
     /// Maximum size that `elements` can grow to.
-    maximum: Option<u32>,
+    maximum: Option<usize>,
 }
 
 /// Represents an instance's table.
@@ -273,14 +273,14 @@ impl Table {
         match wasm_to_table_type(plan.table.wasm_ty) {
             TableElementType::Func => Ok(Self::from(DynamicFuncTable {
                 elements: vec![None; usize::try_from(plan.table.minimum).unwrap()],
-                maximum: plan.table.maximum,
+                maximum: plan.table.maximum.map(|i| i.try_into().unwrap()),
                 lazy_init,
             })),
             TableElementType::GcRef => Ok(Self::from(DynamicGcRefTable {
                 elements: (0..usize::try_from(plan.table.minimum).unwrap())
                     .map(|_| None)
                     .collect(),
-                maximum: plan.table.maximum,
+                maximum: plan.table.maximum.map(|i| i.try_into().unwrap()),
             })),
         }
     }
@@ -293,7 +293,7 @@ impl Table {
     ) -> Result<Self> {
         Self::limit_new(plan, store)?;
 
-        let size = plan.table.minimum;
+        let size: usize = plan.table.minimum.try_into().unwrap();
         let max = plan
             .table
             .maximum
@@ -349,7 +349,11 @@ impl Table {
     }
 
     fn limit_new(plan: &TablePlan, store: &mut dyn Store) -> Result<()> {
-        if !store.table_growing(0, plan.table.minimum, plan.table.maximum)? {
+        if !store.table_growing(
+            0,
+            plan.table.minimum.try_into().unwrap(),
+            plan.table.maximum.map(|i| i.try_into().unwrap()),
+        )? {
             bail!(
                 "table minimum size of {} elements exceeds table limits",
                 plan.table.minimum
@@ -377,15 +381,13 @@ impl Table {
     }
 
     /// Returns the number of allocated elements.
-    pub fn size(&self) -> u32 {
+    pub fn size(&self) -> usize {
         match self {
             Table::Static(StaticTable::Func(StaticFuncTable { size, .. })) => *size,
             Table::Static(StaticTable::GcRef(StaticGcRefTable { size, .. })) => *size,
-            Table::Dynamic(DynamicTable::Func(DynamicFuncTable { elements, .. })) => {
-                elements.len().try_into().unwrap()
-            }
+            Table::Dynamic(DynamicTable::Func(DynamicFuncTable { elements, .. })) => elements.len(),
             Table::Dynamic(DynamicTable::GcRef(DynamicGcRefTable { elements, .. })) => {
-                elements.len().try_into().unwrap()
+                elements.len()
             }
         }
     }
@@ -396,14 +398,10 @@ impl Table {
     ///
     /// The runtime maximum may not be equal to the maximum from the table's Wasm type
     /// when it is being constrained by an instance allocator.
-    pub fn maximum(&self) -> Option<u32> {
+    pub fn maximum(&self) -> Option<usize> {
         match self {
-            Table::Static(StaticTable::Func(StaticFuncTable { data, .. })) => {
-                Some(u32::try_from(data.len()).unwrap())
-            }
-            Table::Static(StaticTable::GcRef(StaticGcRefTable { data, .. })) => {
-                Some(u32::try_from(data.len()).unwrap())
-            }
+            Table::Static(StaticTable::Func(StaticFuncTable { data, .. })) => Some(data.len()),
+            Table::Static(StaticTable::GcRef(StaticGcRefTable { data, .. })) => Some(data.len()),
             Table::Dynamic(DynamicTable::Func(DynamicFuncTable { maximum, .. })) => *maximum,
             Table::Dynamic(DynamicTable::GcRef(DynamicGcRefTable { maximum, .. })) => *maximum,
         }
@@ -416,7 +414,7 @@ impl Table {
     /// Panics if the table is not a function table.
     pub fn init_func(
         &mut self,
-        dst: u32,
+        dst: u64,
         items: impl ExactSizeIterator<Item = *mut VMFuncRef>,
     ) -> Result<(), Trap> {
         let dst = usize::try_from(dst).map_err(|_| Trap::TableOutOfBounds)?;
@@ -438,7 +436,7 @@ impl Table {
     /// Returns a trap error on out-of-bounds accesses.
     pub fn init_gc_refs(
         &mut self,
-        dst: u32,
+        dst: u64,
         items: impl ExactSizeIterator<Item = Option<VMGcRef>>,
     ) -> Result<(), Trap> {
         let dst = usize::try_from(dst).map_err(|_| Trap::TableOutOfBounds)?;
@@ -465,16 +463,16 @@ impl Table {
     pub fn fill(
         &mut self,
         gc_store: &mut GcStore,
-        dst: u32,
+        dst: u64,
         val: TableElement,
-        len: u32,
+        len: u64,
     ) -> Result<(), Trap> {
         let start = dst as usize;
         let end = start
             .checked_add(len as usize)
             .ok_or_else(|| Trap::TableOutOfBounds)?;
 
-        if end > self.size() as usize {
+        if end > self.size() {
             return Err(Trap::TableOutOfBounds);
         }
 
@@ -526,10 +524,10 @@ impl Table {
     /// this unsafety.
     pub unsafe fn grow(
         &mut self,
-        delta: u32,
+        delta: u64,
         init_value: TableElement,
         store: &mut dyn Store,
-    ) -> Result<Option<u32>, Error> {
+    ) -> Result<Option<usize>, Error> {
         let old_size = self.size();
 
         // Don't try to resize the table if its size isn't changing, just return
@@ -537,6 +535,7 @@ impl Table {
         if delta == 0 {
             return Ok(Some(old_size));
         }
+        let delta: usize = delta.try_into().unwrap();
 
         let new_size = match old_size.checked_add(delta) {
             Some(s) => s,
@@ -566,17 +565,13 @@ impl Table {
         match self {
             Table::Static(StaticTable::Func(StaticFuncTable { data, size, .. })) => {
                 unsafe {
-                    debug_assert!(data.as_ref()[*size as usize..new_size as usize]
-                        .iter()
-                        .all(|x| x.is_none()));
+                    debug_assert!(data.as_ref()[*size..new_size].iter().all(|x| x.is_none()));
                 }
                 *size = new_size;
             }
             Table::Static(StaticTable::GcRef(StaticGcRefTable { data, size })) => {
                 unsafe {
-                    debug_assert!(data.as_ref()[*size as usize..new_size as usize]
-                        .iter()
-                        .all(|x| x.is_none()));
+                    debug_assert!(data.as_ref()[*size..new_size].iter().all(|x| x.is_none()));
                 }
                 *size = new_size;
             }
@@ -596,7 +591,7 @@ impl Table {
             }
         }
 
-        self.fill(store.gc_store(), old_size, init_value, delta)
+        self.fill(store.gc_store(), old_size as u64, init_value, delta as u64)
             .expect("table should not be out of bounds");
 
         Ok(Some(old_size))
@@ -605,8 +600,8 @@ impl Table {
     /// Get reference to the specified element.
     ///
     /// Returns `None` if the index is out of bounds.
-    pub fn get(&self, gc_store: &mut GcStore, index: u32) -> Option<TableElement> {
-        let index = usize::try_from(index).ok()?;
+    pub fn get(&self, gc_store: &mut GcStore, index: u64) -> Option<TableElement> {
+        let index: usize = index.try_into().unwrap();
         match self.element_type() {
             TableElementType::Func => {
                 let (funcrefs, lazy_init) = self.funcrefs();
@@ -632,8 +627,8 @@ impl Table {
     /// # Panics
     ///
     /// Panics if `elem` is not of the right type for this table.
-    pub fn set(&mut self, index: u32, elem: TableElement) -> Result<(), ()> {
-        let index = usize::try_from(index).map_err(|_| ())?;
+    pub fn set(&mut self, index: u64, elem: TableElement) -> Result<(), ()> {
+        let index: usize = index.try_into().map_err(|_| ())?;
         match elem {
             TableElement::FuncRef(f) => {
                 let (funcrefs, lazy_init) = self.funcrefs_mut();
@@ -660,18 +655,18 @@ impl Table {
         gc_store: &mut GcStore,
         dst_table: *mut Self,
         src_table: *mut Self,
-        dst_index: u32,
-        src_index: u32,
-        len: u32,
+        dst_index: u64,
+        src_index: u64,
+        len: u64,
     ) -> Result<(), Trap> {
         // https://webassembly.github.io/bulk-memory-operations/core/exec/instructions.html#exec-table-copy
 
         if src_index
             .checked_add(len)
-            .map_or(true, |n| n > (*src_table).size())
+            .map_or(true, |n| n > (*src_table).size() as u64)
             || dst_index
                 .checked_add(len)
-                .map_or(true, |m| m > (*dst_table).size())
+                .map_or(true, |m| m > (*dst_table).size() as u64)
         {
             return Err(Trap::TableOutOfBounds);
         }

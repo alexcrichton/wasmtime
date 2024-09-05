@@ -661,9 +661,9 @@ impl Instance {
     pub(crate) fn table_grow(
         &mut self,
         table_index: TableIndex,
-        delta: u32,
+        delta: u64,
         init_value: TableElement,
-    ) -> Result<Option<u32>, Error> {
+    ) -> Result<Option<usize>, Error> {
         self.with_defined_table_index_and_instance(table_index, |i, instance| {
             instance.defined_table_grow(i, delta, init_value)
         })
@@ -672,9 +672,9 @@ impl Instance {
     fn defined_table_grow(
         &mut self,
         table_index: DefinedTableIndex,
-        delta: u32,
+        delta: u64,
         init_value: TableElement,
-    ) -> Result<Option<u32>, Error> {
+    ) -> Result<Option<usize>, Error> {
         let store = unsafe { &mut *self.store() };
         let table = &mut self
             .tables
@@ -807,9 +807,9 @@ impl Instance {
         &mut self,
         table_index: TableIndex,
         elem_index: ElemIndex,
-        dst: u32,
-        src: u32,
-        len: u32,
+        dst: u64,
+        src: u64,
+        len: u64,
     ) -> Result<(), Trap> {
         // TODO: this `clone()` shouldn't be necessary but is used for now to
         // inform `rustc` that the lifetime of the elements here are
@@ -837,9 +837,9 @@ impl Instance {
         const_evaluator: &mut ConstExprEvaluator,
         table_index: TableIndex,
         elements: &TableSegmentElements,
-        dst: u32,
-        src: u32,
-        len: u32,
+        dst: u64,
+        src: u64,
+        len: u64,
     ) -> Result<(), Trap> {
         // https://webassembly.github.io/bulk-memory-operations/core/exec/instructions.html#exec-table-init
 
@@ -855,7 +855,7 @@ impl Instance {
                     .and_then(|s| s.get(..len))
                     .ok_or(Trap::TableOutOfBounds)?;
                 table.init_func(
-                    dst,
+                    dst.try_into().unwrap(),
                     elements
                         .iter()
                         .map(|idx| self.get_func_ref(*idx).unwrap_or(ptr::null_mut())),
@@ -874,7 +874,7 @@ impl Instance {
                     .top()
                 {
                     WasmHeapTopType::Extern => table.init_gc_refs(
-                        dst,
+                        dst.try_into().unwrap(),
                         exprs.iter().map(|expr| unsafe {
                             let raw = const_evaluator
                                 .eval(&mut context, expr)
@@ -883,7 +883,7 @@ impl Instance {
                         }),
                     )?,
                     WasmHeapTopType::Any => table.init_gc_refs(
-                        dst,
+                        dst.try_into().unwrap(),
                         exprs.iter().map(|expr| unsafe {
                             let raw = const_evaluator
                                 .eval(&mut context, expr)
@@ -892,7 +892,7 @@ impl Instance {
                         }),
                     )?,
                     WasmHeapTopType::Func => table.init_func(
-                        dst,
+                        dst.try_into().unwrap(),
                         exprs.iter().map(|expr| unsafe {
                             const_evaluator
                                 .eval(&mut context, expr)
@@ -1073,7 +1073,7 @@ impl Instance {
     pub(crate) fn get_table_with_lazy_init(
         &mut self,
         table_index: TableIndex,
-        range: impl Iterator<Item = u32>,
+        range: impl Iterator<Item = u64>,
     ) -> *mut Table {
         self.with_defined_table_index_and_instance(table_index, |idx, instance| {
             instance.get_defined_table_with_lazy_init(idx, range)
@@ -1087,7 +1087,7 @@ impl Instance {
     pub fn get_defined_table_with_lazy_init(
         &mut self,
         idx: DefinedTableIndex,
-        range: impl Iterator<Item = u32>,
+        range: impl Iterator<Item = u64>,
     ) -> *mut Table {
         let elt_ty = self.tables[idx].1.element_type();
 
@@ -1120,13 +1120,13 @@ impl Instance {
                     TableInitialValue::Null { precomputed } => precomputed,
                     TableInitialValue::Expr(_) => unreachable!(),
                 };
-                let func_index = precomputed.get(i as usize).cloned();
+                let func_index = precomputed.get(usize::try_from(i).unwrap()).cloned();
                 let func_ref = func_index
                     .and_then(|func_index| self.get_func_ref(func_index))
                     .unwrap_or(ptr::null_mut());
                 self.tables[idx]
                     .1
-                    .set(i, TableElement::FuncRef(func_ref))
+                    .set(i.try_into().unwrap(), TableElement::FuncRef(func_ref))
                     .expect("Table type should match and index should be in-bounds");
             }
         }
@@ -1382,7 +1382,7 @@ impl InstanceHandle {
     pub fn get_defined_table_with_lazy_init(
         &mut self,
         index: DefinedTableIndex,
-        range: impl Iterator<Item = u32>,
+        range: impl Iterator<Item = u64>,
     ) -> *mut Table {
         let index = self.instance().module().table_index(index);
         self.instance_mut().get_table_with_lazy_init(index, range)
