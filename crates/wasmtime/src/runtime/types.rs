@@ -2467,8 +2467,8 @@ impl TableType {
             element,
             ty: Table {
                 wasm_ty,
-                minimum: min as u64,
-                maximum: max.map(|x| x as u64),
+                minimum: u64::from(min),
+                maximum: max.map(|x| u64::from(x)),
                 table64: false,
             },
         }

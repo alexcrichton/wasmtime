@@ -746,6 +746,60 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
         }
     }
 
+    fn table_index_type(&self, index: TableIndex) -> ir::Type {
+        if self.module.table_plans[index].table.table64 {
+            I64
+        } else {
+            I32
+        }
+    }
+
+    fn cast_pointer_to_table_index(
+        &self,
+        pos: &mut FuncCursor<'_>,
+        val: ir::Value,
+        index: TableIndex,
+    ) -> ir::Value {
+        let desired_type = self.table_index_type(index);
+        let pointer_type = self.pointer_type();
+        assert_eq!(pos.func.dfg.value_type(val), pointer_type);
+
+        // The current length is of type `pointer_type` but we need to fit it
+        // into `desired_type`. We are guaranteed that the result will always
+        // fit, so we just need to do the right ireduce/sextend here.
+        if pointer_type == desired_type {
+            val
+        } else if pointer_type.bits() > desired_type.bits() {
+            pos.ins().ireduce(desired_type, val)
+        } else {
+            // Note that we `sextend` instead of the probably expected
+            // `uextend`. This function is only used within the contexts of
+            // `memory.size` and `memory.grow` where we're working with units of
+            // pages instead of actual bytes, so we know that the upper bit is
+            // always cleared for "valid values". The one case we care about
+            // sextend would be when the return value of `memory.grow` is `-1`,
+            // in which case we want to copy the sign bit.
+            //
+            // This should only come up on 32-bit hosts running wasm64 modules,
+            // which at some point also makes you question various assumptions
+            // made along the way...
+            pos.ins().sextend(desired_type, val)
+        }
+    }
+
+    fn cast_table_index_to_i64(
+        &self,
+        pos: &mut FuncCursor<'_>,
+        val: ir::Value,
+        index: TableIndex,
+    ) -> ir::Value {
+        if self.table_index_type(index) == I64 {
+            val
+        } else {
+            pos.ins().uextend(I64, val)
+        }
+    }
+
     /// Set up the necessary preamble definitions in `func` to access the table identified
     /// by `index`.
     ///
@@ -1558,12 +1612,13 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
 
         let vmctx = self.vmctx_val(&mut pos);
 
+        let delta = self.cast_table_index_to_i64(&mut pos, delta, table_index);
         let table_index_arg = pos.ins().iconst(I32, table_index.as_u32() as i64);
         let call_inst = pos
             .ins()
             .call(grow, &[vmctx, table_index_arg, delta, init_value]);
-
-        Ok(pos.func.dfg.first_result(call_inst))
+        let result = pos.func.dfg.first_result(call_inst);
+        Ok(self.cast_pointer_to_table_index(&mut pos, result, table_index))
     }
 
     fn translate_table_get(
@@ -2423,7 +2478,8 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
     ) -> WasmResult<ir::Value> {
         self.ensure_table_exists(pos.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
-        Ok(table_data.bound.bound(pos, ir::types::I32))
+        let index_type = self.table_index_type(table_index);
+        Ok(table_data.bound.bound(pos, index_type))
     }
 
     fn translate_table_copy(
@@ -2438,6 +2494,15 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let (table_copy, dst_table_index_arg, src_table_index_arg) =
             self.get_table_copy_func(&mut pos.func, dst_table_index, src_table_index);
 
+        let dst = self.cast_table_index_to_i64(&mut pos, dst, dst_table_index);
+        let src = self.cast_table_index_to_i64(&mut pos, src, src_table_index);
+        let len = if self.table_index_type(dst_table_index) == I64
+            && self.table_index_type(src_table_index) == I64
+        {
+            len
+        } else {
+            pos.ins().uextend(I64, len)
+        };
         let dst_table_index_arg = pos.ins().iconst(I32, dst_table_index_arg as i64);
         let src_table_index_arg = pos.ins().iconst(I32, src_table_index_arg as i64);
         let vmctx = self.vmctx_val(&mut pos);
@@ -2469,6 +2534,8 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let table_index_arg = pos.ins().iconst(I32, i64::from(table_index.as_u32()));
         let seg_index_arg = pos.ins().iconst(I32, i64::from(seg_index));
         let vmctx = self.vmctx_val(&mut pos);
+        let dst = self.cast_table_index_to_i64(&mut pos, dst, table_index);
+
         pos.ins().call(
             table_init,
             &[vmctx, table_index_arg, seg_index_arg, dst, src, len],

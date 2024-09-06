@@ -270,17 +270,22 @@ impl Table {
     pub fn new_dynamic(plan: &TablePlan, store: &mut dyn Store) -> Result<Self> {
         Self::limit_new(plan, store)?;
         let TableStyle::CallerChecksSignature { lazy_init } = plan.style;
+        let maximum = if !plan.table.table64 && plan.table.maximum.is_none() {
+            Some(usize::try_from(u32::MAX).unwrap())
+        } else {
+            plan.table.maximum.map(|i| usize::try_from(i).unwrap())
+        };
         match wasm_to_table_type(plan.table.wasm_ty) {
             TableElementType::Func => Ok(Self::from(DynamicFuncTable {
                 elements: vec![None; usize::try_from(plan.table.minimum).unwrap()],
-                maximum: plan.table.maximum.map(|i| i.try_into().unwrap()),
+                maximum,
                 lazy_init,
             })),
             TableElementType::GcRef => Ok(Self::from(DynamicGcRefTable {
                 elements: (0..usize::try_from(plan.table.minimum).unwrap())
                     .map(|_| None)
                     .collect(),
-                maximum: plan.table.maximum.map(|i| i.try_into().unwrap()),
+                maximum,
             })),
         }
     }

@@ -236,7 +236,7 @@ pub fn parse_element_section<'data>(
     elements: ElementSectionReader<'data>,
     environ: &mut dyn ModuleEnvironment,
 ) -> WasmResult<()> {
-    environ.reserve_table_elements(elements.count())?;
+    environ.reserve_table_elements(elements.count() as u64)?;
 
     for (index, entry) in elements.into_iter().enumerate() {
         let Element {
@@ -252,7 +252,8 @@ pub fn parse_element_section<'data>(
             } => {
                 let mut offset_expr_reader = offset_expr.get_binary_reader();
                 let (base, offset) = match offset_expr_reader.read_operator()? {
-                    Operator::I32Const { value } => (None, value as u32),
+                    Operator::I32Const { value } => (None, value as u64),
+                    Operator::I64Const { value } => (None, value as u64),
                     Operator::GlobalGet { global_index } => {
                         (Some(GlobalIndex::from_u32(global_index)), 0)
                     }
