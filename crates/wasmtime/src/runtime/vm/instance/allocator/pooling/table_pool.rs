@@ -82,7 +82,7 @@ impl TablePool {
         }
 
         for (i, plan) in module.table_plans.iter().skip(module.num_imported_tables) {
-            if plan.table.minimum > self.table_elements as u64 {
+            if plan.table.minimum > u64::try_from(self.table_elements)? {
                 bail!(
                     "table index {} has a minimum element size of {} which exceeds the limit of {}",
                     i.as_u32(),

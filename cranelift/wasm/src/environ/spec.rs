@@ -824,7 +824,7 @@ pub trait ModuleEnvironment<'data>: TypeConvert {
 
     /// Provides the number of element initializers up front. By default this does nothing, but
     /// implementations can use this to preallocate memory if desired.
-    fn reserve_table_elements(&mut self, _num: u64) -> WasmResult<()> {
+    fn reserve_table_elements(&mut self, _num: u32) -> WasmResult<()> {
         Ok(())
     }
 

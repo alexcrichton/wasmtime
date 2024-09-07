@@ -67,7 +67,7 @@ pub unsafe extern "C" fn wasm_table_get(
     index: wasm_table_size_t,
 ) -> Option<Box<wasm_ref_t>> {
     let table = t.table();
-    let r = table.get(t.ext.store.context_mut(), index as u64)?;
+    let r = table.get(t.ext.store.context_mut(), u64::from(index))?;
     wasm_ref_t::new(r)
 }
 
@@ -80,7 +80,7 @@ pub unsafe extern "C" fn wasm_table_set(
     let table = t.table();
     let val = option_wasm_ref_t_to_ref(r, &table.ty(t.ext.store.context()));
     table
-        .set(t.ext.store.context_mut(), index as u64, val)
+        .set(t.ext.store.context_mut(), u64::from(index), val)
         .is_ok()
 }
 
@@ -100,7 +100,7 @@ pub unsafe extern "C" fn wasm_table_grow(
     let table = t.table();
     let init = option_wasm_ref_t_to_ref(init, &table.ty(t.ext.store.context()));
     table
-        .grow(t.ext.store.context_mut(), delta as u64, init)
+        .grow(t.ext.store.context_mut(), u64::from(delta), init)
         .is_ok()
 }
 

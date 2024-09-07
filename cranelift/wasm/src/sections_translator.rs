@@ -185,7 +185,7 @@ pub fn parse_export_section<'data>(
         // The input has already been validated, so we should be able to
         // assume valid UTF-8 and use `from_utf8_unchecked` if performance
         // becomes a concern here.
-        let index = index as usize;
+        let index = usize::try_from(index)?;
         match *kind {
             ExternalKind::Func => environ.declare_func_export(FuncIndex::new(index), name)?,
             ExternalKind::Table => environ.declare_table_export(TableIndex::new(index), name)?,
@@ -236,7 +236,7 @@ pub fn parse_element_section<'data>(
     elements: ElementSectionReader<'data>,
     environ: &mut dyn ModuleEnvironment,
 ) -> WasmResult<()> {
-    environ.reserve_table_elements(elements.count() as u64)?;
+    environ.reserve_table_elements(elements.count())?;
 
     for (index, entry) in elements.into_iter().enumerate() {
         let Element {
@@ -252,8 +252,8 @@ pub fn parse_element_section<'data>(
             } => {
                 let mut offset_expr_reader = offset_expr.get_binary_reader();
                 let (base, offset) = match offset_expr_reader.read_operator()? {
-                    Operator::I32Const { value } => (None, value as u64),
-                    Operator::I64Const { value } => (None, value as u64),
+                    Operator::I32Const { value } => (None, u64::try_from(value)?),
+                    Operator::I64Const { value } => (None, u64::try_from(value)?),
                     Operator::GlobalGet { global_index } => {
                         (Some(GlobalIndex::from_u32(global_index)), 0)
                     }
@@ -272,7 +272,7 @@ pub fn parse_element_section<'data>(
                 )?
             }
             ElementKind::Passive => {
-                let index = ElemIndex::from_u32(index as u32);
+                let index = ElemIndex::from_u32(u32::try_from(index)?);
                 environ.declare_passive_element(index, segments)?;
             }
             ElementKind::Declared => {
@@ -303,8 +303,8 @@ pub fn parse_data_section<'data>(
             } => {
                 let mut offset_expr_reader = offset_expr.get_binary_reader();
                 let (base, offset) = match offset_expr_reader.read_operator()? {
-                    Operator::I32Const { value } => (None, value as u64),
-                    Operator::I64Const { value } => (None, value as u64),
+                    Operator::I32Const { value } => (None, u64::try_from(value)?),
+                    Operator::I64Const { value } => (None, u64::try_from(value)?),
                     Operator::GlobalGet { global_index } => {
                         (Some(GlobalIndex::from_u32(global_index)), 0)
                     }
@@ -323,7 +323,7 @@ pub fn parse_data_section<'data>(
                 )?;
             }
             DataKind::Passive => {
-                let index = DataIndex::from_u32(index as u32);
+                let index = DataIndex::from_u32(u32::try_from(index)?);
                 environ.declare_passive_data(index, data)?;
             }
         }

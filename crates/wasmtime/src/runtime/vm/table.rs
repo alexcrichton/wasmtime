@@ -7,10 +7,10 @@
 use crate::prelude::*;
 use crate::runtime::vm::vmcontext::{VMFuncRef, VMTableDefinition};
 use crate::runtime::vm::{GcStore, SendSyncPtr, Store, VMGcRef};
-use core::cmp;
 use core::ops::Range;
 use core::ptr::{self, NonNull};
 use core::slice;
+use core::{cmp, usize};
 use sptr::Strict;
 use wasmtime_environ::{
     TablePlan, TableStyle, Trap, WasmHeapTopType, WasmRefType, FUNCREF_INIT_BIT, FUNCREF_MASK,
@@ -273,7 +273,10 @@ impl Table {
         let maximum = if !plan.table.table64 && plan.table.maximum.is_none() {
             Some(usize::try_from(u32::MAX).unwrap())
         } else {
-            plan.table.maximum.map(|i| usize::try_from(i).unwrap())
+            // On a 32-bit system, the effective maximum size of the table will end up being usize::MAX.
+            plan.table
+                .maximum
+                .map(|i| usize::try_from(i).unwrap_or(usize::MAX))
         };
         match wasm_to_table_type(plan.table.wasm_ty) {
             TableElementType::Func => Ok(Self::from(DynamicFuncTable {
@@ -541,7 +544,7 @@ impl Table {
         if delta == 0 {
             return Ok(Some(old_size));
         }
-        let delta: usize = delta.try_into().unwrap();
+        let delta = usize::try_from(delta).map_err(|_| Trap::TableOutOfBounds)?;
 
         let new_size = match old_size.checked_add(delta) {
             Some(s) => s,
@@ -597,8 +600,14 @@ impl Table {
             }
         }
 
-        self.fill(store.gc_store(), old_size as u64, init_value, delta as u64)
-            .expect("table should not be out of bounds");
+        // casting to u64 is ok to unwrap
+        self.fill(
+            store.gc_store(),
+            u64::try_from(old_size).unwrap(),
+            init_value,
+            u64::try_from(delta).unwrap(),
+        )
+        .expect("table should not be out of bounds");
 
         Ok(Some(old_size))
     }
@@ -607,7 +616,10 @@ impl Table {
     ///
     /// Returns `None` if the index is out of bounds.
     pub fn get(&self, gc_store: &mut GcStore, index: u64) -> Option<TableElement> {
-        let index: usize = index.try_into().unwrap();
+        let index = match usize::try_from(index) {
+            Ok(i) => i,
+            Err(_) => return None,
+        };
         match self.element_type() {
             TableElementType::Func => {
                 let (funcrefs, lazy_init) = self.funcrefs();

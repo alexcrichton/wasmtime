@@ -855,7 +855,7 @@ impl Instance {
                     .and_then(|s| s.get(..len))
                     .ok_or(Trap::TableOutOfBounds)?;
                 table.init_func(
-                    dst.try_into().unwrap(),
+                    dst,
                     elements
                         .iter()
                         .map(|idx| self.get_func_ref(*idx).unwrap_or(ptr::null_mut())),
@@ -874,7 +874,7 @@ impl Instance {
                     .top()
                 {
                     WasmHeapTopType::Extern => table.init_gc_refs(
-                        dst.try_into().unwrap(),
+                        dst,
                         exprs.iter().map(|expr| unsafe {
                             let raw = const_evaluator
                                 .eval(&mut context, expr)
@@ -883,7 +883,7 @@ impl Instance {
                         }),
                     )?,
                     WasmHeapTopType::Any => table.init_gc_refs(
-                        dst.try_into().unwrap(),
+                        dst,
                         exprs.iter().map(|expr| unsafe {
                             let raw = const_evaluator
                                 .eval(&mut context, expr)
@@ -892,7 +892,7 @@ impl Instance {
                         }),
                     )?,
                     WasmHeapTopType::Func => table.init_func(
-                        dst.try_into().unwrap(),
+                        dst,
                         exprs.iter().map(|expr| unsafe {
                             const_evaluator
                                 .eval(&mut context, expr)
@@ -1122,13 +1122,14 @@ impl Instance {
                     TableInitialValue::Null { precomputed } => precomputed,
                     TableInitialValue::Expr(_) => unreachable!(),
                 };
+                // Panicking here helps catch bugs rather than silently truncating by accident.
                 let func_index = precomputed.get(usize::try_from(i).unwrap()).cloned();
                 let func_ref = func_index
                     .and_then(|func_index| self.get_func_ref(func_index))
                     .unwrap_or(ptr::null_mut());
                 self.tables[idx]
                     .1
-                    .set(i.try_into().unwrap(), TableElement::FuncRef(func_ref))
+                    .set(i, TableElement::FuncRef(func_ref))
                     .expect("Table type should match and index should be in-bounds");
             }
         }

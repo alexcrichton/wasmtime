@@ -111,12 +111,7 @@ impl Table {
             let table = Table::from_wasmtime_table(wasmtime_export, store);
             let wasmtime_table = table.wasmtime_table(store, iter::empty());
             (*wasmtime_table)
-                .fill(
-                    store.gc_store_mut()?,
-                    0,
-                    init,
-                    ty.minimum().try_into().unwrap(),
-                )
+                .fill(store.gc_store_mut()?, 0, init, ty.minimum())
                 .err2anyhow()?;
             Ok(table)
         }
@@ -215,7 +210,7 @@ impl Table {
         let table = self.wasmtime_table(store, iter::empty());
         unsafe {
             (*table)
-                .set(index.try_into().unwrap(), val)
+                .set(index, val)
                 .map_err(|()| anyhow!("table element index out of bounds"))
         }
     }
@@ -230,7 +225,9 @@ impl Table {
     }
 
     pub(crate) fn internal_size(&self, store: &StoreOpaque) -> u64 {
-        unsafe { (*store[self.0].definition).current_elements as u64 }
+        // unwrap here should be ok because the runtime should always guarantee
+        // that we can fit the number of elements in a 64-bit integer.
+        unsafe { u64::try_from((*store[self.0].definition).current_elements).unwrap() }
     }
 
     /// Grows the size of this table by `delta` more elements, initialization
@@ -264,7 +261,9 @@ impl Table {
                 Some(size) => {
                     let vm = (*table).vmtable();
                     *store[self.0].definition = vm;
-                    Ok(size as u64)
+                    // unwrap here should be ok because the runtime should always guarantee
+                    // that we can fit the table size in a 64-bit integer.
+                    Ok(u64::try_from(size).unwrap())
                 }
                 None => bail!("failed to grow table by `{}`", delta),
             }

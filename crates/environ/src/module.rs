@@ -415,8 +415,8 @@ impl TableSegmentElements {
     /// Returns the number of elements in this segment.
     pub fn len(&self) -> u64 {
         match self {
-            Self::Functions(s) => s.len() as u64,
-            Self::Expressions(s) => s.len() as u64,
+            Self::Functions(s) => u64::try_from(s.len()).unwrap(),
+            Self::Expressions(s) => u64::try_from(s.len()).unwrap(),
         }
     }
 }

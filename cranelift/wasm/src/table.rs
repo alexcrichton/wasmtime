@@ -22,6 +22,7 @@ impl TableSize {
     /// Get a CLIF value representing the current bounds of this table.
     pub fn bound(&self, mut pos: FuncCursor, index_ty: ir::Type) -> ir::Value {
         match *self {
+            // Instead of `i64::try_from(bound)`, here we just want to direcly interpret `bound` as an i64.
             TableSize::Static { bound } => pos.ins().iconst(index_ty, Imm64::new(bound as i64)),
             TableSize::Dynamic { bound_gv } => pos.ins().global_value(index_ty, bound_gv),
         }

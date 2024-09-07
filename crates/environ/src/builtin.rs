@@ -25,7 +25,7 @@ macro_rules! foreach_builtin_function {
             // Returns a table entry after lazily initializing it.
             table_get_lazy_init_func_ref(vmctx: vmctx, table: i32, index: i64) -> pointer;
             // Returns an index for Wasm's `table.grow` instruction for `funcref`s.
-            table_grow_func_ref(vmctx: vmctx, table: i32, delta: i64, init: pointer) -> i64;
+            table_grow_func_ref(vmctx: vmctx, table: i32, delta: i64, init: pointer) -> pointer;
             // Returns an index for Wasm's `table.fill` instruction for `funcref`s.
             table_fill_func_ref(vmctx: vmctx, table: i32, dst: i64, val: pointer, len: i64);
             // Returns an index for wasm's `memory.atomic.notify` instruction.
@@ -91,7 +91,7 @@ macro_rules! foreach_builtin_function {
 
             // Returns an index for Wasm's `table.grow` instruction for GC references.
             #[cfg(feature = "gc")]
-            table_grow_gc_ref(vmctx: vmctx, table: i32, delta: i64, init: reference) -> i64;
+            table_grow_gc_ref(vmctx: vmctx, table: i32, delta: i64, init: reference) -> pointer;
 
             // Returns an index for Wasm's `table.fill` instruction for GC references.
             #[cfg(feature = "gc")]

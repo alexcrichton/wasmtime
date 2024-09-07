@@ -207,7 +207,7 @@ unsafe fn table_grow_func_ref(
     table_index: u32,
     delta: u64,
     init_value: *mut u8,
-) -> Result<u64> {
+) -> Result<*mut u8> {
     let table_index = TableIndex::from_u32(table_index);
 
     let element = match instance.table_element_type(table_index) {
@@ -215,10 +215,11 @@ unsafe fn table_grow_func_ref(
         TableElementType::GcRef => unreachable!(),
     };
 
-    Ok(match instance.table_grow(table_index, delta, element)? {
-        Some(r) => r as u64,
-        None => u64::MAX,
-    })
+    let result = match instance.table_grow(table_index, delta, element)? {
+        Some(r) => r,
+        None => usize::MAX,
+    };
+    Ok(result as *mut _)
 }
 
 /// Implementation of `table.grow` for GC-reference tables.
@@ -228,7 +229,7 @@ unsafe fn table_grow_gc_ref(
     table_index: u32,
     delta: u64,
     init_value: u32,
-) -> Result<u64> {
+) -> Result<*mut u8> {
     let table_index = TableIndex::from_u32(table_index);
 
     let element = match instance.table_element_type(table_index) {
@@ -238,10 +239,11 @@ unsafe fn table_grow_gc_ref(
             .into(),
     };
 
-    Ok(match instance.table_grow(table_index, delta, element)? {
-        Some(r) => r as u64,
-        None => u64::MAX,
-    })
+    let result = match instance.table_grow(table_index, delta, element)? {
+        Some(r) => r,
+        None => usize::MAX,
+    };
+    Ok(result as *mut _)
 }
 
 /// Implementation of `table.fill` for `funcref`s.

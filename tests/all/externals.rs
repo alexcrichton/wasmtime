@@ -29,6 +29,7 @@ fn bad_tables() {
     let ty = TableType::new(RefType::FUNCREF, 0, Some(1));
     let t = Table::new(&mut store, ty.clone(), Ref::Func(None)).unwrap();
     assert!(t.get(&mut store, 0).is_none());
+    assert!(t.get(&mut store, u64::from(u32::MAX)).is_none());
     assert!(t.get(&mut store, u64::MAX).is_none());
 
     // set out of bounds or wrong type

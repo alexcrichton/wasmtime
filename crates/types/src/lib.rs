@@ -1539,14 +1539,26 @@ impl TypeTrace for Table {
     where
         F: FnMut(EngineOrModuleTypeIndex) -> Result<(), E>,
     {
-        self.wasm_ty.trace(func)
+        let Table {
+            wasm_ty,
+            minimum: _,
+            maximum: _,
+            table64: _,
+        } = self;
+        wasm_ty.trace(func)
     }
 
     fn trace_mut<F, E>(&mut self, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&mut EngineOrModuleTypeIndex) -> Result<(), E>,
     {
-        self.wasm_ty.trace_mut(func)
+        let Table {
+            wasm_ty,
+            minimum: _,
+            maximum: _,
+            table64: _,
+        } = self;
+        wasm_ty.trace_mut(func)
     }
 }
 

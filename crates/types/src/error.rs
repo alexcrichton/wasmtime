@@ -1,5 +1,7 @@
 use alloc::string::String;
 use core::fmt;
+use core::num::TryFromIntError;
+use std::string::ToString;
 
 /// A WebAssembly translation error.
 ///
@@ -48,6 +50,16 @@ impl From<wasmparser::BinaryReaderError> for WasmError {
         Self::InvalidWebAssembly {
             message: e.message().into(),
             offset: e.offset(),
+        }
+    }
+}
+
+impl From<TryFromIntError> for WasmError {
+    /// Convert from a `TryFromIntError` to a `WasmError`.
+    fn from(e: TryFromIntError) -> Self {
+        Self::InvalidWebAssembly {
+            message: e.to_string(),
+            offset: 0,
         }
     }
 }
