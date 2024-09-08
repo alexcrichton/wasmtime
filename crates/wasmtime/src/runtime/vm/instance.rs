@@ -869,7 +869,7 @@ impl Instance {
                 let mut context = ConstEvalContext::new(self, &module);
                 match module.table_plans[table_index]
                     .table
-                    .wasm_ty
+                    .ref_type
                     .heap_type
                     .top()
                 {

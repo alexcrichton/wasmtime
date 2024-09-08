@@ -13,7 +13,8 @@ use core::slice;
 use core::{cmp, usize};
 use sptr::Strict;
 use wasmtime_environ::{
-    TablePlan, TableStyle, Trap, WasmHeapTopType, WasmRefType, FUNCREF_INIT_BIT, FUNCREF_MASK,
+    IndexType, TablePlan, TableStyle, Trap, WasmHeapTopType, WasmRefType, FUNCREF_INIT_BIT,
+    FUNCREF_MASK,
 };
 
 /// An element going into or coming out of a table.
@@ -269,7 +270,7 @@ impl Table {
     /// Create a new dynamic (movable) table instance for the specified table plan.
     pub fn new_dynamic(plan: &TablePlan, store: &mut dyn Store) -> Result<Self> {
         let (minimum, maximum) = Self::limit_new(plan, store)?;
-        match wasm_to_table_type(plan.table.wasm_ty) {
+        match wasm_to_table_type(plan.table.ref_type) {
             TableElementType::Func => {
                 let TableStyle::CallerChecksSignature { lazy_init } = plan.style;
                 Ok(Self::from(DynamicFuncTable {
@@ -295,7 +296,7 @@ impl Table {
         let size = minimum;
         let max = maximum.unwrap_or(usize::MAX);
 
-        match wasm_to_table_type(plan.table.wasm_ty) {
+        match wasm_to_table_type(plan.table.ref_type) {
             TableElementType::Func => {
                 let len = {
                     let data = data.as_non_null().as_ref();
@@ -305,10 +306,10 @@ impl Table {
                     data.len()
                 };
                 ensure!(
-                    usize::try_from(plan.table.minimum).unwrap() <= len,
+                    usize::try_from(plan.table.limits.min).unwrap() <= len,
                     "initial table size of {} exceeds the pooling allocator's \
                      configured maximum table size of {len} elements",
-                    plan.table.minimum,
+                    plan.table.limits.min,
                 );
                 let data = SendSyncPtr::new(NonNull::slice_from_raw_parts(
                     data.as_non_null().cast::<FuncTableElem>(),
@@ -330,10 +331,10 @@ impl Table {
                     data.len()
                 };
                 ensure!(
-                    usize::try_from(plan.table.minimum).unwrap() <= len,
+                    usize::try_from(plan.table.limits.min).unwrap() <= len,
                     "initial table size of {} exceeds the pooling allocator's \
                      configured maximum table size of {len} elements",
-                    plan.table.minimum,
+                    plan.table.limits.min,
                 );
                 let data = SendSyncPtr::new(NonNull::slice_from_raw_parts(
                     data.as_non_null().cast::<Option<VMGcRef>>(),
@@ -354,23 +355,23 @@ impl Table {
 
         // If the minimum overflows the host's pointer size, then we can't satisfy this request.
         // We defer the error to later so the `store` can be informed.
-        let minimum = usize::try_from(plan.table.minimum).ok();
+        let minimum = usize::try_from(plan.table.limits.min).ok();
 
         // The maximum size of the table is limited by:
         // * the host's pointer size.
         // * the table's maximum size if defined.
         // * if the table is 64-bit.
-        let maximum = match (plan.table.maximum, plan.table.table64) {
+        let maximum = match (plan.table.limits.max, plan.table.idx_type) {
             (Some(max), _) => usize::try_from(max).ok(),
-            (None, true) => usize::try_from(u64::MAX).ok(),
-            (None, false) => usize::try_from(u32::MAX).ok(),
+            (None, IndexType::I64) => usize::try_from(u64::MAX).ok(),
+            (None, IndexType::I32) => usize::try_from(u32::MAX).ok(),
         };
 
         // Inform the store's limiter what's about to happen.
         if !store.table_growing(0, minimum.unwrap_or(absolute_max), maximum)? {
             bail!(
                 "table minimum size of {} elements exceeds table limits",
-                plan.table.minimum
+                plan.table.limits.min
             );
         }
 
@@ -379,7 +380,7 @@ impl Table {
         let minimum = minimum.ok_or_else(|| {
             format_err!(
                 "table minimum size of {} elements exceeds table limits",
-                plan.table.minimum
+                plan.table.limits.min
             )
         })?;
         Ok((minimum, maximum))

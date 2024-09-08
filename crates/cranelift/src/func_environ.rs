@@ -673,10 +673,9 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
     }
 
     fn memory_index_type(&self, index: MemoryIndex) -> ir::Type {
-        if self.module.memory_plans[index].memory.memory64 {
-            I64
-        } else {
-            I32
+        match self.module.memory_plans[index].memory.idx_type {
+            cranelift_wasm::IndexType::I32 => I32,
+            cranelift_wasm::IndexType::I64 => I64,
         }
     }
 
@@ -747,10 +746,9 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
     }
 
     fn table_index_type(&self, index: TableIndex) -> ir::Type {
-        if self.module.table_plans[index].table.table64 {
-            I64
-        } else {
-            I32
+        match &self.module.table_plans[index].table.idx_type {
+            cranelift_wasm::IndexType::I32 => I32,
+            cranelift_wasm::IndexType::I64 => I64,
         }
     }
 
@@ -838,18 +836,18 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
         };
 
         let table = &self.module.table_plans[index].table;
-        let element_size = if table.wasm_ty.is_vmgcref_type() {
+        let element_size = if table.ref_type.is_vmgcref_type() {
             // For GC-managed references, tables store `Option<VMGcRef>`s.
             ir::types::I32.bytes()
         } else {
-            self.reference_type(table.wasm_ty.heap_type).0.bytes()
+            self.reference_type(table.ref_type.heap_type).0.bytes()
         };
 
         let base_gv = func.create_global_value(ir::GlobalValueData::Load {
             base: ptr,
             offset: Offset32::new(base_offset),
             global_type: pointer_type,
-            flags: if Some(table.minimum) == table.maximum {
+            flags: if Some(table.limits.min) == table.limits.max {
                 // A fixed-size table can't be resized so its base address won't
                 // change.
                 MemFlags::trusted().with_readonly()
@@ -858,9 +856,9 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
             },
         });
 
-        let bound = if Some(table.minimum) == table.maximum {
+        let bound = if Some(table.limits.min) == table.limits.max {
             TableSize::Static {
-                bound: table.minimum,
+                bound: table.limits.min,
             }
         } else {
             TableSize::Dynamic {
@@ -1262,7 +1260,7 @@ impl<'a, 'func, 'module_env> Call<'a, 'func, 'module_env> {
         // Test if a type check is necessary for this table. If this table is a
         // table of typed functions and that type matches `ty_index`, then
         // there's no need to perform a typecheck.
-        match table.table.wasm_ty.heap_type {
+        match table.table.ref_type.heap_type {
             // Functions do not have a statically known type in the table, a
             // typecheck is required. Fall through to below to perform the
             // actual typecheck.
@@ -1278,7 +1276,7 @@ impl<'a, 'func, 'module_env> Call<'a, 'func, 'module_env> {
                 let specified_ty = self.env.module.types[ty_index];
                 if specified_ty == table_ty {
                     return CheckIndirectCallTypeSignature::StaticMatch {
-                        may_be_null: table.table.wasm_ty.nullable,
+                        may_be_null: table.table.ref_type.nullable,
                     };
                 }
 
@@ -1290,7 +1288,7 @@ impl<'a, 'func, 'module_env> Call<'a, 'func, 'module_env> {
                 // type information. If that fails due to the function being a
                 // null pointer, then this was a call to null. Otherwise if it
                 // succeeds then we know it won't match, so trap anyway.
-                if table.table.wasm_ty.nullable {
+                if table.table.ref_type.nullable {
                     let mem_flags = ir::MemFlags::trusted().with_readonly();
                     self.builder.ins().load(
                         sig_id_type,
@@ -1306,7 +1304,7 @@ impl<'a, 'func, 'module_env> Call<'a, 'func, 'module_env> {
             // Tables of `nofunc` can only be inhabited by null, so go ahead and
             // trap with that.
             WasmHeapType::NoFunc => {
-                assert!(table.table.wasm_ty.nullable);
+                assert!(table.table.ref_type.nullable);
                 self.builder.ins().trap(ir::TrapCode::IndirectCallToNull);
                 return CheckIndirectCallTypeSignature::StaticTrap;
             }
@@ -1597,12 +1595,15 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
 
     fn translate_table_grow(
         &mut self,
-        mut pos: cranelift_codegen::cursor::FuncCursor<'_>,
+        mut pos: FuncCursor<'_>,
         table_index: TableIndex,
         delta: ir::Value,
         init_value: ir::Value,
     ) -> WasmResult<ir::Value> {
-        let ty = self.module.table_plans[table_index].table.wasm_ty.heap_type;
+        let ty = self.module.table_plans[table_index]
+            .table
+            .ref_type
+            .heap_type;
         let grow = if ty.is_vmgcref_type() {
             gc::gc_ref_table_grow_builtin(ty, self, &mut pos.func)?
         } else {
@@ -1630,7 +1631,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let plan = &self.module.table_plans[table_index];
         self.ensure_table_exists(builder.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
-        let heap_ty = plan.table.wasm_ty.heap_type;
+        let heap_ty = plan.table.ref_type.heap_type;
         match heap_ty.top() {
             // `i31ref`s never need barriers, and therefore don't need to go
             // through the GC compiler.
@@ -1655,7 +1656,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
                 gc::gc_compiler(self).translate_read_gc_reference(
                     self,
                     builder,
-                    plan.table.wasm_ty,
+                    plan.table.ref_type,
                     src,
                     flags,
                 )
@@ -1686,7 +1687,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let plan = &self.module.table_plans[table_index];
         self.ensure_table_exists(builder.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
-        let heap_ty = plan.table.wasm_ty.heap_type;
+        let heap_ty = plan.table.ref_type.heap_type;
         match heap_ty.top() {
             // `i31ref`s never need GC barriers, and therefore don't need to go
             // through the GC compiler.
@@ -1711,7 +1712,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
                 gc::gc_compiler(self).translate_write_gc_reference(
                     self,
                     builder,
-                    plan.table.wasm_ty,
+                    plan.table.ref_type,
                     dst,
                     value,
                     flags,
@@ -1756,7 +1757,10 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         val: ir::Value,
         len: ir::Value,
     ) -> WasmResult<()> {
-        let ty = self.module.table_plans[table_index].table.wasm_ty.heap_type;
+        let ty = self.module.table_plans[table_index]
+            .table
+            .ref_type
+            .heap_type;
         let libcall = if ty.is_vmgcref_type() {
             gc::gc_ref_table_fill_builtin(ty, self, &mut pos.func)?
         } else {
@@ -1903,7 +1907,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
                 // integer is the maximum memory64 size (2^64) which is one
                 // larger than `u64::MAX` (2^64 - 1). In this case, just say the
                 // minimum heap size is `u64::MAX`.
-                debug_assert_eq!(self.module.memory_plans[index].memory.minimum, 1 << 48);
+                debug_assert_eq!(self.module.memory_plans[index].memory.limits.min, 1 << 48);
                 debug_assert_eq!(self.module.memory_plans[index].memory.page_size(), 1 << 16);
                 u64::MAX
             });

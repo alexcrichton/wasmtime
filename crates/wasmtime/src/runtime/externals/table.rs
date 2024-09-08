@@ -406,7 +406,7 @@ impl Table {
         wasmtime_export
             .table
             .table
-            .wasm_ty
+            .ref_type
             .canonicalize_for_runtime_usage(&mut |module_index| {
                 crate::runtime::vm::Instance::from_vmctx(wasmtime_export.vmctx, |instance| {
                     instance.engine_type_index(module_index)
