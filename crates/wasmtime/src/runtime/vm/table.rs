@@ -268,26 +268,18 @@ fn wasm_to_table_type(ty: WasmRefType) -> TableElementType {
 impl Table {
     /// Create a new dynamic (movable) table instance for the specified table plan.
     pub fn new_dynamic(plan: &TablePlan, store: &mut dyn Store) -> Result<Self> {
-        Self::limit_new(plan, store)?;
-        let TableStyle::CallerChecksSignature { lazy_init } = plan.style;
-        let maximum = if !plan.table.table64 && plan.table.maximum.is_none() {
-            Some(usize::try_from(u32::MAX).unwrap())
-        } else {
-            // On a 32-bit system, the effective maximum size of the table will end up being usize::MAX.
-            plan.table
-                .maximum
-                .map(|i| usize::try_from(i).unwrap_or(usize::MAX))
-        };
+        let (minimum, maximum) = Self::limit_new(plan, store)?;
         match wasm_to_table_type(plan.table.wasm_ty) {
-            TableElementType::Func => Ok(Self::from(DynamicFuncTable {
-                elements: vec![None; usize::try_from(plan.table.minimum).unwrap()],
-                maximum,
-                lazy_init,
-            })),
+            TableElementType::Func => {
+                let TableStyle::CallerChecksSignature { lazy_init } = plan.style;
+                Ok(Self::from(DynamicFuncTable {
+                    elements: vec![None; minimum],
+                    maximum,
+                    lazy_init,
+                }))
+            }
             TableElementType::GcRef => Ok(Self::from(DynamicGcRefTable {
-                elements: (0..usize::try_from(plan.table.minimum).unwrap())
-                    .map(|_| None)
-                    .collect(),
+                elements: (0..minimum).map(|_| None).collect(),
                 maximum,
             })),
         }
@@ -299,13 +291,9 @@ impl Table {
         data: SendSyncPtr<[u8]>,
         store: &mut dyn Store,
     ) -> Result<Self> {
-        Self::limit_new(plan, store)?;
-
-        let size: usize = plan.table.minimum.try_into().unwrap();
-        let max = plan
-            .table
-            .maximum
-            .map_or(usize::MAX, |x| usize::try_from(x).unwrap());
+        let (minimum, maximum) = Self::limit_new(plan, store)?;
+        let size = minimum;
+        let max = maximum.unwrap_or(usize::MAX);
 
         match wasm_to_table_type(plan.table.wasm_ty) {
             TableElementType::Func => {
@@ -356,18 +344,45 @@ impl Table {
         }
     }
 
-    fn limit_new(plan: &TablePlan, store: &mut dyn Store) -> Result<()> {
-        if !store.table_growing(
-            0,
-            plan.table.minimum.try_into().unwrap(),
-            plan.table.maximum.map(|i| i.try_into().unwrap()),
-        )? {
+    // Calls the `store`'s limiter to optionally prevent the table from being created.
+    //
+    // Returns the minimum and maximum size of the table if the table can be created.
+    fn limit_new(plan: &TablePlan, store: &mut dyn Store) -> Result<(usize, Option<usize>)> {
+        // No matter how the table limits are specified
+        // The table size is limited by the host's pointer size
+        let absolute_max = usize::MAX;
+
+        // If the minimum overflows the host's pointer size, then we can't satisfy this request.
+        // We defer the error to later so the `store` can be informed.
+        let minimum = usize::try_from(plan.table.minimum).ok();
+
+        // The maximum size of the table is limited by:
+        // * the host's pointer size.
+        // * the table's maximum size if defined.
+        // * if the table is 64-bit.
+        let maximum = match (plan.table.maximum, plan.table.table64) {
+            (Some(max), _) => usize::try_from(max).ok(),
+            (None, true) => usize::try_from(u64::MAX).ok(),
+            (None, false) => usize::try_from(u32::MAX).ok(),
+        };
+
+        // Inform the store's limiter what's about to happen.
+        if !store.table_growing(0, minimum.unwrap_or(absolute_max), maximum)? {
             bail!(
                 "table minimum size of {} elements exceeds table limits",
                 plan.table.minimum
             );
         }
-        Ok(())
+
+        // At this point we need to actually handle overflows, so bail out with
+        // an error if we made it this far.
+        let minimum = minimum.ok_or_else(|| {
+            format_err!(
+                "table minimum size of {} elements exceeds table limits",
+                plan.table.minimum
+            )
+        })?;
+        Ok((minimum, maximum))
     }
 
     /// Returns the type of the elements in this table.
@@ -475,9 +490,10 @@ impl Table {
         val: TableElement,
         len: u64,
     ) -> Result<(), Trap> {
-        let start = dst as usize;
+        let start = usize::try_from(dst).map_err(|_| Trap::TableOutOfBounds)?;
+        let len = usize::try_from(len).map_err(|_| Trap::TableOutOfBounds)?;
         let end = start
-            .checked_add(len as usize)
+            .checked_add(len)
             .ok_or_else(|| Trap::TableOutOfBounds)?;
 
         if end > self.size() {
@@ -678,12 +694,16 @@ impl Table {
     ) -> Result<(), Trap> {
         // https://webassembly.github.io/bulk-memory-operations/core/exec/instructions.html#exec-table-copy
 
+        let src_index = usize::try_from(src_index).map_err(|_| Trap::TableOutOfBounds)?;
+        let dst_index = usize::try_from(dst_index).map_err(|_| Trap::TableOutOfBounds)?;
+        let len = usize::try_from(len).map_err(|_| Trap::TableOutOfBounds)?;
+
         if src_index
             .checked_add(len)
-            .map_or(true, |n| n > (*src_table).size() as u64)
+            .map_or(true, |n| n > (*src_table).size())
             || dst_index
                 .checked_add(len)
-                .map_or(true, |m| m > (*dst_table).size() as u64)
+                .map_or(true, |m| m > (*dst_table).size())
         {
             return Err(Trap::TableOutOfBounds);
         }
@@ -693,8 +713,8 @@ impl Table {
             "table element type mismatch"
         );
 
-        let src_range = src_index as usize..src_index as usize + len as usize;
-        let dst_range = dst_index as usize..dst_index as usize + len as usize;
+        let src_range = src_index..src_index + len;
+        let dst_range = dst_index..dst_index + len;
 
         // Check if the tables are the same as we cannot mutably borrow and also borrow the same `RefCell`
         if ptr::eq(dst_table, src_table) {
@@ -724,13 +744,13 @@ impl Table {
             Table::Dynamic(DynamicTable::Func(DynamicFuncTable { elements, .. })) => {
                 VMTableDefinition {
                     base: elements.as_mut_ptr().cast(),
-                    current_elements: elements.len().try_into().unwrap(),
+                    current_elements: elements.len(),
                 }
             }
             Table::Dynamic(DynamicTable::GcRef(DynamicGcRefTable { elements, .. })) => {
                 VMTableDefinition {
                     base: elements.as_mut_ptr().cast(),
-                    current_elements: elements.len().try_into().unwrap(),
+                    current_elements: elements.len(),
                 }
             }
         }
