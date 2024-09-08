@@ -156,7 +156,7 @@ unsafe fn handler_thread() {
             &mut request.body.Head,
             MACH_RCV_MSG | MACH_RCV_INTERRUPT,
             0,
-            u32::try_from(mem::size_of_val(&request)).unwrap(),
+            mem::size_of_val(&request) as u32,
             WASMTIME_PORT,
             MACH_MSG_TIMEOUT_NONE,
             MACH_PORT_NULL,
@@ -192,7 +192,7 @@ unsafe fn handler_thread() {
         let mut reply: __Reply__exception_raise_t = mem::zeroed();
         reply.Head.msgh_bits =
             MACH_MSGH_BITS(request.body.Head.msgh_bits & MACH_MSGH_BITS_REMOTE_MASK, 0);
-        reply.Head.msgh_size = u32::try_from(mem::size_of_val(&request)).unwrap();
+        reply.Head.msgh_size = mem::size_of_val(&reply) as u32;
         reply.Head.msgh_remote_port = request.body.Head.msgh_remote_port;
         reply.Head.msgh_local_port = MACH_PORT_NULL;
         reply.Head.msgh_id = request.body.Head.msgh_id + 100;
@@ -201,7 +201,7 @@ unsafe fn handler_thread() {
         mach_msg(
             &mut reply.Head,
             MACH_SEND_MSG,
-            u32::try_from(mem::size_of_val(&request)).unwrap(),
+            mem::size_of_val(&reply) as u32,
             0,
             MACH_PORT_NULL,
             MACH_MSG_TIMEOUT_NONE,
@@ -223,7 +223,7 @@ unsafe fn handle_exception(request: &mut ExceptionRequest) -> bool {
     // field has a `kern_return_t` describing the kind of failure (e.g. SIGSEGV
     // vs SIGBUS), but we're not interested in that right now.
     let faulting_addr = if request.body.exception as u32 == EXC_BAD_ACCESS {
-        Some(usize::try_from(request.body.code[1]).unwrap())
+        Some(request.body.code[1] as usize)
     } else {
         None
     };
@@ -298,7 +298,7 @@ unsafe fn handle_exception(request: &mut ExceptionRequest) -> bool {
 
             let get_pc_and_fp = |state: &ThreadState| (
                 state.__pc as *const u8,
-                usize::try_from(state.__fp).unwrap(),
+                state.__fp as usize,
             );
 
             let resume = |state: &mut ThreadState, pc: usize, fp: usize, fault1: usize, fault2: usize, trap: Trap| {

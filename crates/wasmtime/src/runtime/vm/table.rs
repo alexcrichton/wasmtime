@@ -475,10 +475,9 @@ impl Table {
         val: TableElement,
         len: u64,
     ) -> Result<(), Trap> {
-        let start = usize::try_from(dst).map_err(|_| Trap::TableOutOfBounds)?;
-        let len = usize::try_from(len).map_err(|_| Trap::TableOutOfBounds)?;
+        let start = dst as usize;
         let end = start
-            .checked_add(len)
+            .checked_add(len as usize)
             .ok_or_else(|| Trap::TableOutOfBounds)?;
 
         if end > self.size() {
@@ -679,16 +678,12 @@ impl Table {
     ) -> Result<(), Trap> {
         // https://webassembly.github.io/bulk-memory-operations/core/exec/instructions.html#exec-table-copy
 
-        let src_index = usize::try_from(src_index).map_err(|_| Trap::TableOutOfBounds)?;
-        let dst_index = usize::try_from(dst_index).map_err(|_| Trap::TableOutOfBounds)?;
-        let len = usize::try_from(len).map_err(|_| Trap::TableOutOfBounds)?;
-
         if src_index
             .checked_add(len)
-            .map_or(true, |n| n > (*src_table).size())
+            .map_or(true, |n| n > (*src_table).size() as u64)
             || dst_index
                 .checked_add(len)
-                .map_or(true, |m| m > (*dst_table).size())
+                .map_or(true, |m| m > (*dst_table).size() as u64)
         {
             return Err(Trap::TableOutOfBounds);
         }
@@ -698,8 +693,8 @@ impl Table {
             "table element type mismatch"
         );
 
-        let src_range = src_index..src_index + len;
-        let dst_range = dst_index..dst_index + len;
+        let src_range = src_index as usize..src_index as usize + len as usize;
+        let dst_range = dst_index as usize..dst_index as usize + len as usize;
 
         // Check if the tables are the same as we cannot mutably borrow and also borrow the same `RefCell`
         if ptr::eq(dst_table, src_table) {
