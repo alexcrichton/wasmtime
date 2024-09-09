@@ -27,7 +27,7 @@
 ;; @003d                               v5 = iconst.i32 0
 ;; @003d                               v6 = iconst.i32 0
 ;; @003d                               v7 = global_value.i64 gv3
-;; @003d                               v8 = uextend.i64 v2
+;; @003d                               v8 = sextend.i64 v2
 ;; @003d                               call fn0(v7, v5, v6, v8, v3, v4)  ; v5 = 0, v6 = 0
 ;; @0041                               jump block1
 ;;

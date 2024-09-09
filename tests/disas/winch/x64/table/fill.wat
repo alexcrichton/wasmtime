@@ -133,7 +133,7 @@
 ;;       movl    0xc(%rsp), %edx
 ;;       movq    4(%rsp), %rcx
 ;;       movl    (%rsp), %r8d
-;;       callq   0x503
+;;       callq   0x501
 ;;       addq    $0x10, %rsp
 ;;       movq    0x28(%rsp), %r14
 ;;       addq    $0x30, %rsp

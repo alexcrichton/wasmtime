@@ -28,15 +28,15 @@
 ;;
 ;;                                 block0(v0: i64, v1: i64):
 ;; @0052                               v3 = iconst.i32 0
-;; @0054                               v4 = iconst.i32 7
-;; @0054                               v5 = icmp uge v3, v4  ; v3 = 0, v4 = 7
-;; @0054                               v6 = uextend.i64 v3  ; v3 = 0
+;; @0054                               v4 = sextend.i64 v3  ; v3 = 0
+;; @0054                               v5 = iconst.i64 7
+;; @0054                               v6 = icmp uge v4, v5  ; v5 = 7
 ;; @0054                               v7 = load.i64 notrap aligned readonly v0+88
 ;;                                     v51 = iconst.i64 2
-;; @0054                               v8 = ishl v6, v51  ; v51 = 2
+;; @0054                               v8 = ishl v4, v51  ; v51 = 2
 ;; @0054                               v9 = iadd v7, v8
 ;; @0054                               v10 = iconst.i64 0
-;; @0054                               v11 = select_spectre_guard v5, v10, v9  ; v10 = 0
+;; @0054                               v11 = select_spectre_guard v6, v10, v9  ; v10 = 0
 ;; @0054                               v12 = load.i32 table_oob aligned table v11
 ;;                                     v52 = stack_addr.i64 ss0
 ;;                                     store notrap v12, v52
@@ -127,15 +127,15 @@
 ;;     stack_limit = gv2
 ;;
 ;;                                 block0(v0: i64, v1: i64, v2: i32):
-;; @005b                               v4 = iconst.i32 7
-;; @005b                               v5 = icmp uge v2, v4  ; v4 = 7
-;; @005b                               v6 = uextend.i64 v2
+;; @005b                               v4 = sextend.i64 v2
+;; @005b                               v5 = iconst.i64 7
+;; @005b                               v6 = icmp uge v4, v5  ; v5 = 7
 ;; @005b                               v7 = load.i64 notrap aligned readonly v0+88
 ;;                                     v51 = iconst.i64 2
-;; @005b                               v8 = ishl v6, v51  ; v51 = 2
+;; @005b                               v8 = ishl v4, v51  ; v51 = 2
 ;; @005b                               v9 = iadd v7, v8
 ;; @005b                               v10 = iconst.i64 0
-;; @005b                               v11 = select_spectre_guard v5, v10, v9  ; v10 = 0
+;; @005b                               v11 = select_spectre_guard v6, v10, v9  ; v10 = 0
 ;; @005b                               v12 = load.i32 table_oob aligned table v11
 ;;                                     v52 = stack_addr.i64 ss0
 ;;                                     store notrap v12, v52
