@@ -3286,6 +3286,49 @@ pub(crate) fn define(
 
     ig.push(
         Inst::new(
+            "x86_sshr",
+            r#"
+                TODO
+            "#,
+            &formats.binary,
+        )
+        .operands_in(vec![
+            Operand::new("x", I16or32or64xN),
+            Operand::new("y", f64_),
+        ])
+        .operands_out(vec![Operand::new("a", I16or32or64xN)]),
+    );
+    ig.push(
+        Inst::new(
+            "x86_ushr",
+            r#"
+                TODO
+            "#,
+            &formats.binary,
+        )
+        .operands_in(vec![
+            Operand::new("x", I16or32or64xN),
+            Operand::new("y", f64_),
+        ])
+        .operands_out(vec![Operand::new("a", I16or32or64xN)]),
+    );
+    ig.push(
+        Inst::new(
+            "x86_shl",
+            r#"
+                TODO
+            "#,
+            &formats.binary,
+        )
+        .operands_in(vec![
+            Operand::new("x", I16or32or64xN),
+            Operand::new("y", f64_),
+        ])
+        .operands_out(vec![Operand::new("a", I16or32or64xN)]),
+    );
+
+    ig.push(
+        Inst::new(
             "uextend",
             r#"
         Convert `x` to a larger integer type by zero-extending.

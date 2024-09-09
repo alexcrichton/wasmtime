@@ -1288,6 +1288,9 @@ where
         Opcode::X86Pmaddubsw => unimplemented!("X86Pmaddubsw"),
         Opcode::X86Cvtt2dq => unimplemented!("X86Cvtt2dq"),
         Opcode::StackSwitch => unimplemented!("StackSwitch"),
+        Opcode::X86Sshr => unimplemented!("StackSwitch"),
+        Opcode::X86Ushr => unimplemented!("StackSwitch"),
+        Opcode::X86Shl => unimplemented!("StackSwitch"),
     })
 }
 

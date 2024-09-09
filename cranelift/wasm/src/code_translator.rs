@@ -1818,24 +1818,48 @@ pub fn translate_operator<FE: FuncEnvironment + ?Sized>(
         }
         Operator::I8x16Shl | Operator::I16x8Shl | Operator::I32x4Shl | Operator::I64x2Shl => {
             let (a, b) = state.pop2();
+            let ty = type_of(op);
             let bitcast_a = optionally_bitcast_vector(a, type_of(op), builder);
             // The spec expects to shift with `b mod lanewidth`; This is directly compatible
             // with cranelift's instruction.
-            state.push1(builder.ins().ishl(bitcast_a, b))
+            if ty != I8X16 && environ.is_x86() {
+                let b = builder.ins().uextend(I64, b);
+                let b = builder.ins().band_imm(b, i64::from(ty.lane_bits() - 1));
+                let b = builder.ins().bitcast(F64, MemFlags::new(), b);
+                state.push1(builder.ins().x86_shl(bitcast_a, b))
+            } else {
+                state.push1(builder.ins().ishl(bitcast_a, b))
+            }
         }
         Operator::I8x16ShrU | Operator::I16x8ShrU | Operator::I32x4ShrU | Operator::I64x2ShrU => {
             let (a, b) = state.pop2();
+            let ty = type_of(op);
             let bitcast_a = optionally_bitcast_vector(a, type_of(op), builder);
             // The spec expects to shift with `b mod lanewidth`; This is directly compatible
             // with cranelift's instruction.
-            state.push1(builder.ins().ushr(bitcast_a, b))
+            if ty != I8X16 && environ.is_x86() {
+                let b = builder.ins().uextend(I64, b);
+                let b = builder.ins().band_imm(b, i64::from(ty.lane_bits() - 1));
+                let b = builder.ins().bitcast(F64, MemFlags::new(), b);
+                state.push1(builder.ins().x86_ushr(bitcast_a, b))
+            } else {
+                state.push1(builder.ins().ushr(bitcast_a, b))
+            }
         }
         Operator::I8x16ShrS | Operator::I16x8ShrS | Operator::I32x4ShrS | Operator::I64x2ShrS => {
             let (a, b) = state.pop2();
+            let ty = type_of(op);
             let bitcast_a = optionally_bitcast_vector(a, type_of(op), builder);
             // The spec expects to shift with `b mod lanewidth`; This is directly compatible
             // with cranelift's instruction.
-            state.push1(builder.ins().sshr(bitcast_a, b))
+            if ty != I8X16 && ty != I64X2 && environ.is_x86() {
+                let b = builder.ins().uextend(I64, b);
+                let b = builder.ins().band_imm(b, i64::from(ty.lane_bits() - 1));
+                let b = builder.ins().bitcast(F64, MemFlags::new(), b);
+                state.push1(builder.ins().x86_sshr(bitcast_a, b))
+            } else {
+                state.push1(builder.ins().sshr(bitcast_a, b))
+            }
         }
         Operator::V128Bitselect => {
             let (a, b, c) = pop3_with_bitcast(state, I8X16, builder);

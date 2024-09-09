@@ -4969,3 +4969,32 @@
 
 (decl output_carry_result_as_pair (MultiReg) InstOutput)
 (rule (output_carry_result_as_pair (MultiReg.Three _ op flags)) (output_pair op flags))
+
+;; `x86_shl`, `x86_sshr`, `x86_ushr`
+
+(rule (lower (has_type ty @ $I16X8 (x86_ushr src amt)))
+      (x64_psrlw src (x86_shift_amount amt)))
+
+(rule (lower (has_type ty @ $I32X4 (x86_ushr src amt)))
+      (x64_psrld src (x86_shift_amount amt)))
+
+(rule (lower (has_type ty @ $I64X2 (x86_ushr src amt)))
+      (x64_psrlq src (x86_shift_amount amt)))
+
+(rule (lower (has_type ty @ $I16X8 (x86_sshr src amt)))
+      (x64_psraw src (x86_shift_amount amt)))
+
+(rule (lower (has_type ty @ $I32X4 (x86_sshr src amt)))
+      (x64_psrad src (x86_shift_amount amt)))
+
+(rule (lower (has_type ty @ $I16X8 (x86_shl src amt)))
+      (x64_psllw src (x86_shift_amount amt)))
+
+(rule (lower (has_type ty @ $I32X4 (x86_shl src amt)))
+      (x64_pslld src (x86_shift_amount amt)))
+
+(rule (lower (has_type ty @ $I64X2 (x86_shl src amt)))
+      (x64_psllq src (x86_shift_amount amt)))
+
+(decl x86_shift_amount (Value) XmmMemImm)
+(rule (x86_shift_amount val) val)
