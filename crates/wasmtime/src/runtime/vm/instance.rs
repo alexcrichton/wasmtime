@@ -198,7 +198,7 @@ impl Instance {
                         let size = memory_plans
                             .iter()
                             .next()
-                            .map(|plan| plan.1.memory.minimum)
+                            .map(|plan| plan.1.memory.limits.min)
                             .unwrap_or(0)
                             * 64
                             * 1024;

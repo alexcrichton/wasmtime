@@ -1,7 +1,6 @@
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use core::fmt;
 use core::num::TryFromIntError;
-use std::string::ToString;
 
 /// A WebAssembly translation error.
 ///
