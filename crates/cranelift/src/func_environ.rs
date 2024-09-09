@@ -13,8 +13,9 @@ use cranelift_frontend::FunctionBuilder;
 use cranelift_frontend::Variable;
 use cranelift_wasm::{
     EngineOrModuleTypeIndex, FuncEnvironment as _, FuncIndex, FuncTranslationState, GlobalIndex,
-    GlobalVariable, Heap, HeapData, HeapStyle, MemoryIndex, TableData, TableIndex, TableSize,
-    TargetEnvironment, TypeIndex, WasmFuncType, WasmHeapTopType, WasmHeapType, WasmResult,
+    GlobalVariable, Heap, HeapData, HeapStyle, IndexType, Memory, MemoryIndex, Table, TableData,
+    TableIndex, TableSize, TargetEnvironment, TypeIndex, WasmFuncType, WasmHeapTopType,
+    WasmHeapType, WasmResult,
 };
 use smallvec::SmallVec;
 use std::mem;
@@ -672,26 +673,50 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
         builder.switch_to_block(continuation_block);
     }
 
-    fn memory_index_type(&self, index: MemoryIndex) -> ir::Type {
-        match self.module.memory_plans[index].memory.idx_type {
-            cranelift_wasm::IndexType::I32 => I32,
-            cranelift_wasm::IndexType::I64 => I64,
+    // Get the Memory for the given index.
+    fn memory(&self, index: MemoryIndex) -> Memory {
+        self.module.memory_plans[index].memory
+    }
+
+    // Get the Table for the given index.
+    fn table(&self, index: TableIndex) -> Table {
+        self.module.table_plans[index].table
+    }
+
+    // Cast the value to I64 and sign extend if necessary.
+    //
+    // Returns the value casted to I64.
+    fn cast_index_to_i64(
+        &self,
+        pos: &mut FuncCursor<'_>,
+        val: ir::Value,
+        index_type: IndexType,
+    ) -> ir::Value {
+        match index_type {
+            IndexType::I32 => pos.ins().sextend(I64, val),
+            IndexType::I64 => val,
         }
     }
 
-    /// Convert the target pointer-sized integer `val` that is holding a memory
-    /// length (or the `-1` `memory.grow`-failed sentinel) into the memory's
-    /// index type.
+    /// Convert the target pointer-sized integer `val` into the memory/table's index type.
     ///
-    /// This might involve extending or truncating it depending on the memory's
+    /// For memory, `val` is holding a memory length (or the `-1` `memory.grow`-failed sentinel).
+    /// For table, `val` is holding a table length.
+    ///
+    /// This might involve extending or truncating it depending on the memory/table's
     /// index type and the target's pointer type.
-    fn convert_memory_length_to_index_type(
+    fn convert_pointer_to_index_type(
         &self,
         mut pos: FuncCursor<'_>,
         val: ir::Value,
-        index: MemoryIndex,
+        index_type: IndexType,
+        // When it is a memory and the memory is using single-byte pages,
+        // we need to handle the tuncation differently. See comments below.
+        //
+        // When it is a table, this should be set to false.
+        single_byte_pages: bool,
     ) -> ir::Value {
-        let desired_type = self.memory_index_type(index);
+        let desired_type = index_type_to_ir_type(index_type);
         let pointer_type = self.pointer_type();
         assert_eq!(pos.func.dfg.value_type(val), pointer_type);
 
@@ -703,21 +728,24 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
         } else if pointer_type.bits() > desired_type.bits() {
             pos.ins().ireduce(desired_type, val)
         } else {
-            // We have a 64-bit memory on a 32-bit host -- this combo doesn't
+            // We have a 64-bit memory/table on a 32-bit host -- this combo doesn't
             // really make a whole lot of sense to do from a user perspective
             // but that is neither here nor there. We want to logically do an
             // unsigned extend *except* when we are given the `-1` sentinel,
             // which we must preserve as `-1` in the wider type.
-            match self.module.memory_plans[index].memory.page_size_log2 {
-                16 => {
+            match single_byte_pages {
+                false => {
                     // In the case that we have default page sizes, we can
                     // always sign extend, since valid memory lengths (in pages)
                     // never have their sign bit set, and so if the sign bit is
                     // set then this must be the `-1` sentinel, which we want to
                     // preserve through the extension.
+                    //
+                    // When it comes to table, `single_byte_pages` should have always been set to false.
+                    // Then we simply do a signed extension.
                     pos.ins().sextend(desired_type, val)
                 }
-                0 => {
+                true => {
                     // For single-byte pages, we have to explicitly check for
                     // `-1` and choose whether to do an unsigned extension or
                     // return a larger `-1` because there are valid memory
@@ -727,74 +755,7 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
                     let is_failure = pos.ins().icmp_imm(IntCC::Equal, val, -1);
                     pos.ins().select(is_failure, neg_one, extended)
                 }
-                _ => unreachable!("only page sizes 2**0 and 2**16 are currently valid"),
             }
-        }
-    }
-
-    fn cast_memory_index_to_i64(
-        &self,
-        pos: &mut FuncCursor<'_>,
-        val: ir::Value,
-        index: MemoryIndex,
-    ) -> ir::Value {
-        if self.memory_index_type(index) == I64 {
-            val
-        } else {
-            pos.ins().uextend(I64, val)
-        }
-    }
-
-    fn table_index_type(&self, index: TableIndex) -> ir::Type {
-        match &self.module.table_plans[index].table.idx_type {
-            cranelift_wasm::IndexType::I32 => I32,
-            cranelift_wasm::IndexType::I64 => I64,
-        }
-    }
-
-    fn cast_pointer_to_table_index(
-        &self,
-        pos: &mut FuncCursor<'_>,
-        val: ir::Value,
-        index: TableIndex,
-    ) -> ir::Value {
-        let desired_type = self.table_index_type(index);
-        let pointer_type = self.pointer_type();
-        assert_eq!(pos.func.dfg.value_type(val), pointer_type);
-
-        // The current length is of type `pointer_type` but we need to fit it
-        // into `desired_type`. We are guaranteed that the result will always
-        // fit, so we just need to do the right ireduce/sextend here.
-        if pointer_type == desired_type {
-            val
-        } else if pointer_type.bits() > desired_type.bits() {
-            pos.ins().ireduce(desired_type, val)
-        } else {
-            // Note that we `sextend` instead of the probably expected
-            // `uextend`. This function is only used within the contexts of
-            // `memory.size` and `memory.grow` where we're working with units of
-            // pages instead of actual bytes, so we know that the upper bit is
-            // always cleared for "valid values". The one case we care about
-            // sextend would be when the return value of `memory.grow` is `-1`,
-            // in which case we want to copy the sign bit.
-            //
-            // This should only come up on 32-bit hosts running wasm64 modules,
-            // which at some point also makes you question various assumptions
-            // made along the way...
-            pos.ins().sextend(desired_type, val)
-        }
-    }
-
-    fn cast_table_index_to_i64(
-        &self,
-        pos: &mut FuncCursor<'_>,
-        val: ir::Value,
-        index: TableIndex,
-    ) -> ir::Value {
-        if self.table_index_type(index) == I64 {
-            val
-        } else {
-            pos.ins().uextend(I64, val)
         }
     }
 
@@ -1600,10 +1561,8 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         delta: ir::Value,
         init_value: ir::Value,
     ) -> WasmResult<ir::Value> {
-        let ty = self.module.table_plans[table_index]
-            .table
-            .ref_type
-            .heap_type;
+        let table = self.table(table_index);
+        let ty = table.ref_type.heap_type;
         let grow = if ty.is_vmgcref_type() {
             gc::gc_ref_table_grow_builtin(ty, self, &mut pos.func)?
         } else {
@@ -1613,13 +1572,14 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
 
         let vmctx = self.vmctx_val(&mut pos);
 
-        let delta = self.cast_table_index_to_i64(&mut pos, delta, table_index);
+        let index_type = table.idx_type;
+        let delta = self.cast_index_to_i64(&mut pos, delta, index_type);
         let table_index_arg = pos.ins().iconst(I32, table_index.as_u32() as i64);
         let call_inst = pos
             .ins()
             .call(grow, &[vmctx, table_index_arg, delta, init_value]);
         let result = pos.func.dfg.first_result(call_inst);
-        Ok(self.cast_pointer_to_table_index(&mut pos, result, table_index))
+        Ok(self.convert_pointer_to_index_type(pos, result, index_type, false))
     }
 
     fn translate_table_get(
@@ -1629,9 +1589,12 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         index: ir::Value,
     ) -> WasmResult<ir::Value> {
         let plan = &self.module.table_plans[table_index];
+        let table = plan.table;
+        let index_type = table.idx_type;
+        let index = self.cast_index_to_i64(&mut builder.cursor(), index, index_type);
         self.ensure_table_exists(builder.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
-        let heap_ty = plan.table.ref_type.heap_type;
+        let heap_ty = table.ref_type.heap_type;
         match heap_ty.top() {
             // `i31ref`s never need barriers, and therefore don't need to go
             // through the GC compiler.
@@ -1656,7 +1619,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
                 gc::gc_compiler(self).translate_read_gc_reference(
                     self,
                     builder,
-                    plan.table.ref_type,
+                    table.ref_type,
                     src,
                     flags,
                 )
@@ -1683,11 +1646,13 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         value: ir::Value,
         index: ir::Value,
     ) -> WasmResult<()> {
-        let pointer_type = self.pointer_type();
         let plan = &self.module.table_plans[table_index];
+        let table = plan.table;
+        let index_type = table.idx_type;
+        let index = self.cast_index_to_i64(&mut builder.cursor(), index, index_type);
         self.ensure_table_exists(builder.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
-        let heap_ty = plan.table.ref_type.heap_type;
+        let heap_ty = table.ref_type.heap_type;
         match heap_ty.top() {
             // `i31ref`s never need GC barriers, and therefore don't need to go
             // through the GC compiler.
@@ -1712,7 +1677,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
                 gc::gc_compiler(self).translate_write_gc_reference(
                     self,
                     builder,
-                    plan.table.ref_type,
+                    table.ref_type,
                     dst,
                     value,
                     flags,
@@ -1726,7 +1691,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
                         let (elem_addr, flags) = table_data.prepare_table_addr(
                             builder,
                             index,
-                            pointer_type,
+                            self.pointer_type(),
                             self.isa.flags().enable_table_access_spectre_mitigation(),
                         );
                         // Set the "initialized bit". See doc-comment on
@@ -1757,10 +1722,11 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         val: ir::Value,
         len: ir::Value,
     ) -> WasmResult<()> {
-        let ty = self.module.table_plans[table_index]
-            .table
-            .ref_type
-            .heap_type;
+        let table = self.table(table_index);
+        let index_type = table.idx_type;
+        let dst = self.cast_index_to_i64(&mut pos, dst, index_type);
+        let len = self.cast_index_to_i64(&mut pos, len, index_type);
+        let ty = table.ref_type.heap_type;
         let libcall = if ty.is_vmgcref_type() {
             gc::gc_ref_table_fill_builtin(ty, self, &mut pos.func)?
         } else {
@@ -2133,7 +2099,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
             max_size,
             offset_guard_size,
             style: heap_style,
-            index_type: self.memory_index_type(index),
+            index_type: index_type_to_ir_type(self.memory(index).idx_type),
             memory_type,
             page_size_log2,
         }))
@@ -2300,10 +2266,16 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let memory_index = pos.ins().iconst(I32, index_arg as i64);
         let vmctx = self.vmctx_val(&mut pos);
 
-        let val = self.cast_memory_index_to_i64(&mut pos, val, index);
+        let index_type = self.memory(index).idx_type;
+        let val = self.cast_index_to_i64(&mut pos, val, index_type);
         let call_inst = pos.ins().call(memory_grow, &[vmctx, val, memory_index]);
         let result = *pos.func.dfg.inst_results(call_inst).first().unwrap();
-        Ok(self.convert_memory_length_to_index_type(pos, result, index))
+        let single_byte_pages = match self.memory(index).page_size_log2 {
+            16 => false,
+            1 => true,
+            _ => unreachable!("only page sizes 2**0 and 2**16 are currently valid"),
+        };
+        Ok(self.convert_pointer_to_index_type(pos, result, index_type, single_byte_pages))
     }
 
     fn translate_memory_size(
@@ -2378,8 +2350,17 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
 
         let page_size_log2 = i64::from(self.module.memory_plans[index].memory.page_size_log2);
         let current_length_in_pages = pos.ins().ushr_imm(current_length_in_bytes, page_size_log2);
-
-        Ok(self.convert_memory_length_to_index_type(pos, current_length_in_pages, index))
+        let single_byte_pages = match page_size_log2 {
+            16 => false,
+            1 => true,
+            _ => unreachable!("only page sizes 2**0 and 2**16 are currently valid"),
+        };
+        Ok(self.convert_pointer_to_index_type(
+            pos,
+            current_length_in_pages,
+            self.memory(index).idx_type,
+            single_byte_pages,
+        ))
     }
 
     fn translate_memory_copy(
@@ -2396,15 +2377,15 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let vmctx = self.vmctx_val(&mut pos);
 
         let memory_copy = self.builtin_functions.memory_copy(&mut pos.func);
-        let dst = self.cast_memory_index_to_i64(&mut pos, dst, dst_index);
-        let src = self.cast_memory_index_to_i64(&mut pos, src, src_index);
+        let dst = self.cast_index_to_i64(&mut pos, dst, self.memory(dst_index).idx_type);
+        let src = self.cast_index_to_i64(&mut pos, src, self.memory(src_index).idx_type);
         // The length is 32-bit if either memory is 32-bit, but if they're both
         // 64-bit then it's 64-bit. Our intrinsic takes a 64-bit length for
         // compatibility across all memories, so make sure that it's cast
         // correctly here (this is a bit special so no generic helper unlike for
         // `dst`/`src` above)
-        let len = if self.memory_index_type(dst_index) == I64
-            && self.memory_index_type(src_index) == I64
+        let len = if index_type_to_ir_type(self.memory(dst_index).idx_type) == I64
+            && index_type_to_ir_type(self.memory(src_index).idx_type) == I64
         {
             len
         } else {
@@ -2428,8 +2409,8 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         len: ir::Value,
     ) -> WasmResult<()> {
         let memory_fill = self.builtin_functions.memory_fill(&mut pos.func);
-        let dst = self.cast_memory_index_to_i64(&mut pos, dst, memory_index);
-        let len = self.cast_memory_index_to_i64(&mut pos, len, memory_index);
+        let dst = self.cast_index_to_i64(&mut pos, dst, self.memory(memory_index).idx_type);
+        let len = self.cast_index_to_i64(&mut pos, len, self.memory(memory_index).idx_type);
         let memory_index_arg = pos.ins().iconst(I32, i64::from(memory_index.as_u32()));
 
         let vmctx = self.vmctx_val(&mut pos);
@@ -2457,7 +2438,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
 
         let vmctx = self.vmctx_val(&mut pos);
 
-        let dst = self.cast_memory_index_to_i64(&mut pos, dst, memory_index);
+        let dst = self.cast_index_to_i64(&mut pos, dst, self.memory(memory_index).idx_type);
 
         pos.ins().call(
             memory_init,
@@ -2482,7 +2463,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
     ) -> WasmResult<ir::Value> {
         self.ensure_table_exists(pos.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
-        let index_type = self.table_index_type(table_index);
+        let index_type = index_type_to_ir_type(self.table(table_index).idx_type);
         Ok(table_data.bound.bound(pos, index_type))
     }
 
@@ -2498,10 +2479,10 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let (table_copy, dst_table_index_arg, src_table_index_arg) =
             self.get_table_copy_func(&mut pos.func, dst_table_index, src_table_index);
 
-        let dst = self.cast_table_index_to_i64(&mut pos, dst, dst_table_index);
-        let src = self.cast_table_index_to_i64(&mut pos, src, src_table_index);
-        let len = if self.table_index_type(dst_table_index) == I64
-            && self.table_index_type(src_table_index) == I64
+        let dst = self.cast_index_to_i64(&mut pos, dst, self.table(dst_table_index).idx_type);
+        let src = self.cast_index_to_i64(&mut pos, src, self.table(src_table_index).idx_type);
+        let len = if index_type_to_ir_type(self.table(dst_table_index).idx_type) == I64
+            && index_type_to_ir_type(self.table(src_table_index).idx_type) == I64
         {
             len
         } else {
@@ -2538,7 +2519,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let table_index_arg = pos.ins().iconst(I32, i64::from(table_index.as_u32()));
         let seg_index_arg = pos.ins().iconst(I32, i64::from(seg_index));
         let vmctx = self.vmctx_val(&mut pos);
-        let dst = self.cast_table_index_to_i64(&mut pos, dst, table_index);
+        let dst = self.cast_index_to_i64(&mut pos, dst, self.table(table_index).idx_type);
 
         pos.ins().call(
             table_init,
@@ -2567,7 +2548,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
     ) -> WasmResult<ir::Value> {
         #[cfg(feature = "threads")]
         {
-            let addr = self.cast_memory_index_to_i64(&mut pos, addr, memory_index);
+            let addr = self.cast_index_to_i64(&mut pos, addr, self.memory(memory_index).idx_type);
             let implied_ty = pos.func.dfg.value_type(expected);
             let (wait_func, memory_index) =
                 self.get_memory_atomic_wait(&mut pos.func, memory_index, implied_ty);
@@ -2602,7 +2583,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
     ) -> WasmResult<ir::Value> {
         #[cfg(feature = "threads")]
         {
-            let addr = self.cast_memory_index_to_i64(&mut pos, addr, memory_index);
+            let addr = self.cast_index_to_i64(&mut pos, addr, self.memory(memory_index).idx_type);
             let atomic_notify = self.builtin_functions.memory_atomic_notify(&mut pos.func);
 
             let memory_index_arg = pos.ins().iconst(I32, memory_index.index() as i64);
@@ -2824,5 +2805,16 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
             let vmctx = self.vmctx_val(&mut builder.cursor());
             builder.ins().call(update_mem_size, &[vmctx, num_pages]);
         }
+    }
+}
+
+// Helper function to convert an `IndexType` to an `ir::Type`.
+//
+// Implementing From/Into trait for `IndexType` or `ir::Type` would
+// introduce an extra dependency between `wasmtime_types` and `cranelift_codegen`.
+fn index_type_to_ir_type(index_type: IndexType) -> ir::Type {
+    match index_type {
+        IndexType::I32 => I32,
+        IndexType::I64 => I64,
     }
 }

@@ -960,7 +960,9 @@ impl ModuleTranslation<'_> {
                     expr.ops(),
                     self.module.memory_plans[memory_index].memory.idx_type,
                 ) {
-                    (&[ConstOp::I32Const(offset)], IndexType::I32) => Some(offset.unsigned().into()),
+                    (&[ConstOp::I32Const(offset)], IndexType::I32) => {
+                        Some(offset.unsigned().into())
+                    }
                     (&[ConstOp::I64Const(offset)], IndexType::I64) => Some(offset.unsigned()),
                     _ => None,
                 }
