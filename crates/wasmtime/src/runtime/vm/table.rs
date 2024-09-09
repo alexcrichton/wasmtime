@@ -634,10 +634,7 @@ impl Table {
     ///
     /// Returns `None` if the index is out of bounds.
     pub fn get(&self, gc_store: &mut GcStore, index: u64) -> Option<TableElement> {
-        let index = match usize::try_from(index) {
-            Ok(i) => i,
-            Err(_) => return None,
-        };
+        let index = usize::try_from(index).ok()?;
         match self.element_type() {
             TableElementType::Func => {
                 let (funcrefs, lazy_init) = self.funcrefs();

@@ -14,7 +14,7 @@ use crate::{
     TypeIndex, WasmError, WasmResult,
 };
 use cranelift_entity::packed_option::ReservedValue;
-use cranelift_entity::EntityRef;
+use cranelift_entity::{EntityRef, Unsigned};
 use std::boxed::Box;
 use std::vec::Vec;
 use wasmparser::{
@@ -252,8 +252,8 @@ pub fn parse_element_section<'data>(
             } => {
                 let mut offset_expr_reader = offset_expr.get_binary_reader();
                 let (base, offset) = match offset_expr_reader.read_operator()? {
-                    Operator::I32Const { value } => (None, u64::try_from(value)?),
-                    Operator::I64Const { value } => (None, u64::try_from(value)?),
+                    Operator::I32Const { value } => (None, u64::from(value.unsigned())),
+                    Operator::I64Const { value } => (None, value.unsigned()),
                     Operator::GlobalGet { global_index } => {
                         (Some(GlobalIndex::from_u32(global_index)), 0)
                     }

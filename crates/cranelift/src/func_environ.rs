@@ -673,19 +673,19 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
         builder.switch_to_block(continuation_block);
     }
 
-    // Get the Memory for the given index.
+    /// Get the Memory for the given index.
     fn memory(&self, index: MemoryIndex) -> Memory {
         self.module.memory_plans[index].memory
     }
 
-    // Get the Table for the given index.
+    /// Get the Table for the given index.
     fn table(&self, index: TableIndex) -> Table {
         self.module.table_plans[index].table
     }
 
-    // Cast the value to I64 and sign extend if necessary.
-    //
-    // Returns the value casted to I64.
+    /// Cast the value to I64 and sign extend if necessary.
+    ///
+    /// Returns the value casted to I64.
     fn cast_index_to_i64(
         &self,
         pos: &mut FuncCursor<'_>,
@@ -1588,10 +1588,8 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         table_index: TableIndex,
         index: ir::Value,
     ) -> WasmResult<ir::Value> {
-        let plan = &self.module.table_plans[table_index];
+        let plan: &wasmtime_environ::TablePlan = &self.module.table_plans[table_index];
         let table = plan.table;
-        let index_type = table.idx_type;
-        let index = self.cast_index_to_i64(&mut builder.cursor(), index, index_type);
         self.ensure_table_exists(builder.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
         let heap_ty = table.ref_type.heap_type;
@@ -1648,8 +1646,6 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
     ) -> WasmResult<()> {
         let plan = &self.module.table_plans[table_index];
         let table = plan.table;
-        let index_type = table.idx_type;
-        let index = self.cast_index_to_i64(&mut builder.cursor(), index, index_type);
         self.ensure_table_exists(builder.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
         let heap_ty = table.ref_type.heap_type;

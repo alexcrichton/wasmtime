@@ -28,15 +28,15 @@
 ;;
 ;;                                 block0(v0: i64, v1: i64, v2: i32):
 ;; @0052                               v3 = iconst.i32 0
-;; @0056                               v4 = sextend.i64 v3  ; v3 = 0
-;; @0056                               v5 = iconst.i64 7
-;; @0056                               v6 = icmp uge v4, v5  ; v5 = 7
+;; @0056                               v4 = iconst.i32 7
+;; @0056                               v5 = icmp uge v3, v4  ; v3 = 0, v4 = 7
+;; @0056                               v6 = uextend.i64 v3  ; v3 = 0
 ;; @0056                               v7 = load.i64 notrap aligned readonly v0+88
 ;;                                     v62 = iconst.i64 2
-;; @0056                               v8 = ishl v4, v62  ; v62 = 2
+;; @0056                               v8 = ishl v6, v62  ; v62 = 2
 ;; @0056                               v9 = iadd v7, v8
 ;; @0056                               v10 = iconst.i64 0
-;; @0056                               v11 = select_spectre_guard v6, v10, v9  ; v10 = 0
+;; @0056                               v11 = select_spectre_guard v5, v10, v9  ; v10 = 0
 ;; @0056                               v12 = load.i32 table_oob aligned table v11
 ;;                                     v63 = iconst.i32 0
 ;; @0056                               v13 = icmp eq v2, v63  ; v63 = 0
@@ -149,15 +149,15 @@
 ;;     stack_limit = gv2
 ;;
 ;;                                 block0(v0: i64, v1: i64, v2: i32, v3: i32):
-;; @005f                               v4 = sextend.i64 v2
-;; @005f                               v5 = iconst.i64 7
-;; @005f                               v6 = icmp uge v4, v5  ; v5 = 7
+;; @005f                               v4 = iconst.i32 7
+;; @005f                               v5 = icmp uge v2, v4  ; v4 = 7
+;; @005f                               v6 = uextend.i64 v2
 ;; @005f                               v7 = load.i64 notrap aligned readonly v0+88
 ;;                                     v62 = iconst.i64 2
-;; @005f                               v8 = ishl v4, v62  ; v62 = 2
+;; @005f                               v8 = ishl v6, v62  ; v62 = 2
 ;; @005f                               v9 = iadd v7, v8
 ;; @005f                               v10 = iconst.i64 0
-;; @005f                               v11 = select_spectre_guard v6, v10, v9  ; v10 = 0
+;; @005f                               v11 = select_spectre_guard v5, v10, v9  ; v10 = 0
 ;; @005f                               v12 = load.i32 table_oob aligned table v11
 ;;                                     v63 = iconst.i32 0
 ;; @005f                               v13 = icmp eq v3, v63  ; v63 = 0

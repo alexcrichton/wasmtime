@@ -702,7 +702,6 @@ fn initialize_memories(instance: &mut Instance, module: &Module) -> Result<()> {
             memory: wasmtime_environ::MemoryIndex,
             expr: &wasmtime_environ::ConstExpr,
         ) -> Option<u64> {
-            // let mem64 = self.instance.module().memory_plans[memory].memory.memory64;
             let mut context = ConstEvalContext::new(self.instance, self.module);
             let val = unsafe { self.const_evaluator.eval(&mut context, expr) }
                 .expect("const expression should be valid");
