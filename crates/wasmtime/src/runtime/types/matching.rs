@@ -358,7 +358,7 @@ fn match_index(expected: IndexType, actual: IndexType, desc: &str) -> Result<()>
         S32
     };
     bail!(
-        "{desc} index types incompatible: expected {expected} {desc}, \
+        "{desc} types incompatible: expected {expected} {desc}, \
          found {actual} {desc}",
     )
 }
