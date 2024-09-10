@@ -858,12 +858,7 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
         // contents, we check for a null entry here, and
         // if null, we take a slow-path that invokes a
         // libcall.
-        let (table_entry_addr, flags) = table_data.prepare_table_addr(
-            builder,
-            index,
-            pointer_type,
-            self.isa.flags().enable_table_access_spectre_mitigation(),
-        );
+        let (table_entry_addr, flags) = table_data.prepare_table_addr(&*self.isa, builder, index);
         let value = builder.ins().load(pointer_type, flags, table_entry_addr, 0);
 
         if !lazy_init {
@@ -1599,23 +1594,13 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
             // `i31ref`s never need barriers, and therefore don't need to go
             // through the GC compiler.
             WasmHeapTopType::Any if heap_ty == WasmHeapType::I31 => {
-                let (src, flags) = table_data.prepare_table_addr(
-                    builder,
-                    index,
-                    self.pointer_type(),
-                    self.isa.flags().enable_table_access_spectre_mitigation(),
-                );
+                let (src, flags) = table_data.prepare_table_addr(&*self.isa, builder, index);
                 gc::unbarriered_load_gc_ref(self, builder, WasmHeapType::I31, src, flags)
             }
 
             // GC-managed types.
             WasmHeapTopType::Any | WasmHeapTopType::Extern => {
-                let (src, flags) = table_data.prepare_table_addr(
-                    builder,
-                    index,
-                    self.pointer_type(),
-                    self.isa.flags().enable_table_access_spectre_mitigation(),
-                );
+                let (src, flags) = table_data.prepare_table_addr(&*self.isa, builder, index);
                 gc::gc_compiler(self).translate_read_gc_reference(
                     self,
                     builder,
@@ -1655,23 +1640,13 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
             // `i31ref`s never need GC barriers, and therefore don't need to go
             // through the GC compiler.
             WasmHeapTopType::Any if heap_ty == WasmHeapType::I31 => {
-                let (addr, flags) = table_data.prepare_table_addr(
-                    builder,
-                    index,
-                    self.pointer_type(),
-                    self.isa.flags().enable_table_access_spectre_mitigation(),
-                );
+                let (addr, flags) = table_data.prepare_table_addr(&*self.isa, builder, index);
                 gc::unbarriered_store_gc_ref(self, builder, WasmHeapType::I31, addr, value, flags)
             }
 
             // GC-managed types.
             WasmHeapTopType::Any | WasmHeapTopType::Extern => {
-                let (dst, flags) = table_data.prepare_table_addr(
-                    builder,
-                    index,
-                    self.pointer_type(),
-                    self.isa.flags().enable_table_access_spectre_mitigation(),
-                );
+                let (dst, flags) = table_data.prepare_table_addr(&*self.isa, builder, index);
                 gc::gc_compiler(self).translate_write_gc_reference(
                     self,
                     builder,
@@ -1686,12 +1661,8 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
             WasmHeapTopType::Func => {
                 match plan.style {
                     TableStyle::CallerChecksSignature { lazy_init } => {
-                        let (elem_addr, flags) = table_data.prepare_table_addr(
-                            builder,
-                            index,
-                            self.pointer_type(),
-                            self.isa.flags().enable_table_access_spectre_mitigation(),
-                        );
+                        let (elem_addr, flags) =
+                            table_data.prepare_table_addr(&*self.isa, builder, index);
                         // Set the "initialized bit". See doc-comment on
                         // `FUNCREF_INIT_BIT` in
                         // crates/environ/src/ref_bits.rs for details.
@@ -2462,7 +2433,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         self.ensure_table_exists(pos.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
         let index_type = index_type_to_ir_type(self.table(table_index).idx_type);
-        Ok(table_data.bound.bound(pos, index_type))
+        Ok(table_data.bound.bound(&*self.isa, pos, index_type))
     }
 
     fn translate_table_copy(
@@ -2519,8 +2490,8 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let vmctx = self.vmctx_val(&mut pos);
         let index_type = self.table(table_index).idx_type;
         let dst = self.cast_index_to_i64(&mut pos, dst, index_type);
-        let src = self.cast_index_to_i64(&mut pos, src, index_type);
-        let len = self.cast_index_to_i64(&mut pos, len, index_type);
+        let src = pos.ins().uextend(I64, src);
+        let len = pos.ins().uextend(I64, len);
 
         pos.ins().call(
             table_init,
