@@ -693,7 +693,7 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
         index_type: IndexType,
     ) -> ir::Value {
         match index_type {
-            IndexType::I32 => pos.ins().sextend(I64, val),
+            IndexType::I32 => pos.ins().uextend(I64, val),
             IndexType::I64 => val,
         }
     }

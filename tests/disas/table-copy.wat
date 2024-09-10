@@ -72,8 +72,8 @@
 ;;     stack_limit = gv2
 ;;
 ;;                                 block0(v0: i64, v1: i64, v2: i32, v3: i32, v4: i32, v5: i32):
-;; @0090                               v7 = sextend.i64 v3
-;; @0090                               v8 = sextend.i64 v4
+;; @0090                               v7 = uextend.i64 v3
+;; @0090                               v8 = uextend.i64 v4
 ;; @0090                               v9 = uextend.i64 v5
 ;; @0090                               v10 = iconst.i32 0
 ;; @0090                               v11 = iconst.i32 1
@@ -95,8 +95,8 @@
 ;;     stack_limit = gv2
 ;;
 ;;                                 block0(v0: i64, v1: i64, v2: i32, v3: i32, v4: i32, v5: i32):
-;; @009f                               v7 = sextend.i64 v3
-;; @009f                               v8 = sextend.i64 v4
+;; @009f                               v7 = uextend.i64 v3
+;; @009f                               v8 = uextend.i64 v4
 ;; @009f                               v9 = uextend.i64 v5
 ;; @009f                               v10 = iconst.i32 1
 ;; @009f                               v11 = iconst.i32 0

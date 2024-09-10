@@ -45,7 +45,6 @@
 ;; @002b                               v11 = select_spectre_guard v5, v10, v9  ; v10 = 0
 ;;                                     v30 = iconst.i64 -2
 ;; @002b                               v15 = iconst.i32 0
-;; @002b                               v17 = sextend.i64 v2
 ;; @002b                               v20 = load.i64 notrap aligned readonly v0+80
 ;; @002b                               v21 = load.i32 notrap aligned readonly v20
 ;; @0027                               jump block2
@@ -58,7 +57,7 @@
 ;;
 ;;                                 block4 cold:
 ;;                                     v33 = iconst.i32 0
-;; @002b                               v18 = call fn0(v0, v33, v17)  ; v33 = 0
+;; @002b                               v18 = call fn0(v0, v33, v6)  ; v33 = 0
 ;; @002b                               jump block5(v18)
 ;;
 ;;                                 block5(v14: i64):

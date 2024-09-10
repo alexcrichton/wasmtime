@@ -89,7 +89,7 @@
 ;;                                 block2 cold:
 ;; @0050                               v15 = iconst.i32 0
 ;; @0050                               v16 = global_value.i64 gv3
-;; @0050                               v17 = sextend.i64 v2
+;; @0050                               v17 = uextend.i64 v2
 ;; @0050                               v18 = call fn0(v16, v15, v17)  ; v15 = 0
 ;; @0050                               jump block3(v18)
 ;;

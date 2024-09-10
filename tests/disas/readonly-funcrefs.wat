@@ -59,8 +59,7 @@
 ;;
 ;;                                 block2 cold:
 ;; @0031                               v14 = iconst.i32 0
-;; @0031                               v16 = sextend.i64 v2
-;; @0031                               v17 = call fn0(v0, v14, v16)  ; v14 = 0
+;; @0031                               v17 = call fn0(v0, v14, v5)  ; v14 = 0
 ;; @0031                               jump block3(v17)
 ;;
 ;;                                 block3(v13: i64):
