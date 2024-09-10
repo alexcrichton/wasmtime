@@ -1739,10 +1739,6 @@ pub trait TypeConvert {
 
     /// Converts a wasmparser table type into a wasmtime type
     fn convert_table_type(&self, ty: &wasmparser::TableType) -> WasmResult<Table> {
-        if ty.table64 {
-            return Err(wasm_unsupported!("wasm memory64: 64-bit table type"));
-        }
-
         let idx_type = match ty.table64 {
             false => IndexType::I32,
             true => IndexType::I64,
