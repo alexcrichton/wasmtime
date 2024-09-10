@@ -894,11 +894,13 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
         builder.seal_block(null_block);
 
         builder.switch_to_block(null_block);
+        let index_type = self.table(table_index).idx_type;
         let table_index = builder.ins().iconst(I32, table_index.index() as i64);
         let lazy_init = self
             .builtin_functions
             .table_get_lazy_init_func_ref(builder.func);
         let vmctx = self.vmctx_val(&mut builder.cursor());
+        let index = self.cast_index_to_i64(&mut builder.cursor(), index, index_type);
         let call_inst = builder.ins().call(lazy_init, &[vmctx, table_index, index]);
         let returned_entry = builder.func.dfg.inst_results(call_inst)[0];
         builder.ins().jump(continuation_block, &[returned_entry]);
@@ -1588,7 +1590,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         table_index: TableIndex,
         index: ir::Value,
     ) -> WasmResult<ir::Value> {
-        let plan: &wasmtime_environ::TablePlan = &self.module.table_plans[table_index];
+        let plan = &self.module.table_plans[table_index];
         let table = plan.table;
         self.ensure_table_exists(builder.func, table_index);
         let table_data = self.tables[table_index].as_ref().unwrap();
@@ -2268,7 +2270,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let result = *pos.func.dfg.inst_results(call_inst).first().unwrap();
         let single_byte_pages = match self.memory(index).page_size_log2 {
             16 => false,
-            1 => true,
+            0 => true,
             _ => unreachable!("only page sizes 2**0 and 2**16 are currently valid"),
         };
         Ok(self.convert_pointer_to_index_type(pos, result, index_type, single_byte_pages))
@@ -2348,7 +2350,7 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let current_length_in_pages = pos.ins().ushr_imm(current_length_in_bytes, page_size_log2);
         let single_byte_pages = match page_size_log2 {
             16 => false,
-            1 => true,
+            0 => true,
             _ => unreachable!("only page sizes 2**0 and 2**16 are currently valid"),
         };
         Ok(self.convert_pointer_to_index_type(
@@ -2515,7 +2517,10 @@ impl<'module_environment> cranelift_wasm::FuncEnvironment for FuncEnvironment<'m
         let table_index_arg = pos.ins().iconst(I32, i64::from(table_index.as_u32()));
         let seg_index_arg = pos.ins().iconst(I32, i64::from(seg_index));
         let vmctx = self.vmctx_val(&mut pos);
-        let dst = self.cast_index_to_i64(&mut pos, dst, self.table(table_index).idx_type);
+        let index_type = self.table(table_index).idx_type;
+        let dst = self.cast_index_to_i64(&mut pos, dst, index_type);
+        let src = self.cast_index_to_i64(&mut pos, src, index_type);
+        let len = self.cast_index_to_i64(&mut pos, len, index_type);
 
         pos.ins().call(
             table_init,
