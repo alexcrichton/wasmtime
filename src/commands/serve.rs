@@ -1,5 +1,5 @@
 use crate::common::{Profile, RunCommon, RunTarget};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use std::net::SocketAddr;
 use std::{
@@ -9,7 +9,7 @@ use std::{
         Arc,
     },
 };
-use wasmtime::component::Linker;
+use wasmtime::component::{InstancePre, Linker};
 use wasmtime::{Config, Engine, Memory, MemoryType, Store, StoreLimits};
 use wasmtime_wasi::{StreamError, StreamResult, WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::bindings::http::types::Scheme;
@@ -25,6 +25,7 @@ use wasmtime_wasi_nn::wit::WasiNnCtx;
 use wasmtime_wasi_runtime_config::{WasiRuntimeConfig, WasiRuntimeConfigVariables};
 
 struct Host {
+    req_id: u64,
     table: wasmtime::component::ResourceTable,
     ctx: WasiCtx,
     http: WasiHttpCtx,
@@ -79,6 +80,10 @@ pub struct ServeCommand {
     /// The WebAssembly component to run.
     #[arg(value_name = "WASM", required = true)]
     component: PathBuf,
+
+    /// TODO
+    #[arg(long)]
+    generic: bool,
 }
 
 impl ServeCommand {
@@ -149,6 +154,7 @@ impl ServeCommand {
         ));
 
         let mut host = Host {
+            req_id,
             table: wasmtime::component::ResourceTable::new(),
             ctx: builder.build(),
             http: WasiHttpCtx::new(),
@@ -347,7 +353,11 @@ impl ServeCommand {
         };
 
         let instance = linker.instantiate_pre(&component)?;
-        let instance = ProxyPre::new(instance)?;
+        let instance = if self.generic {
+            WasmHandler::Generic(instance)
+        } else {
+            WasmHandler::Wasi(ProxyPre::new(instance)?)
+        };
 
         let socket = match &self.addr {
             SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
@@ -441,8 +451,13 @@ impl Drop for EpochThread {
 struct ProxyHandlerInner {
     cmd: ServeCommand,
     engine: Engine,
-    instance_pre: ProxyPre<Host>,
+    instance_pre: WasmHandler,
     next_id: AtomicU64,
+}
+
+enum WasmHandler {
+    Wasi(ProxyPre<Host>),
+    Generic(InstancePre<Host>),
 }
 
 impl ProxyHandlerInner {
@@ -455,7 +470,7 @@ impl ProxyHandlerInner {
 struct ProxyHandler(Arc<ProxyHandlerInner>);
 
 impl ProxyHandler {
-    fn new(cmd: ServeCommand, engine: Engine, instance_pre: ProxyPre<Host>) -> Self {
+    fn new(cmd: ServeCommand, engine: Engine, instance_pre: WasmHandler) -> Self {
         Self(Arc::new(ProxyHandlerInner {
             cmd,
             engine,
@@ -471,8 +486,6 @@ async fn handle_request(
     ProxyHandler(inner): ProxyHandler,
     req: Request,
 ) -> Result<hyper::Response<HyperOutgoingBody>> {
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-
     let req_id = inner.next_req_id();
 
     log::info!(
@@ -481,11 +494,24 @@ async fn handle_request(
         req.uri()
     );
 
-    let mut store = inner.cmd.new_store(&inner.engine, req_id)?;
+    let store = inner.cmd.new_store(&inner.engine, req_id)?;
 
+    match &inner.instance_pre {
+        WasmHandler::Wasi(proxy) => handle_wasi_request(store, proxy, req).await,
+        WasmHandler::Generic(pre) => handle_generic_request(store, pre, req).await,
+    }
+}
+
+async fn handle_wasi_request(
+    mut store: Store<Host>,
+    proxy: &ProxyPre<Host>,
+    req: Request,
+) -> Result<hyper::Response<HyperOutgoingBody>> {
+    let req_id = store.data().req_id;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
     let req = store.data_mut().new_incoming_request(Scheme::Http, req)?;
     let out = store.data_mut().new_response_outparam(sender)?;
-    let proxy = inner.instance_pre.instantiate_async(&mut store).await?;
+    let proxy = proxy.instantiate_async(&mut store).await?;
 
     let task = tokio::task::spawn(async move {
         if let Err(e) = proxy
@@ -516,6 +542,471 @@ async fn handle_request(
                 Err(e) => e.into(),
             };
             bail!("guest never invoked `response-outparam::set` method: {e:?}")
+        }
+    }
+}
+
+async fn handle_generic_request(
+    mut store: Store<Host>,
+    pre: &InstancePre<Host>,
+    req: Request,
+) -> Result<hyper::Response<HyperOutgoingBody>> {
+    use http_body_util::BodyExt;
+    use hyper::{header, Method, Response, StatusCode};
+    use std::borrow::Cow;
+    use wasm_wave::wasm::{self, WasmValueError};
+    use wasmtime::component::{Type, Val};
+
+    if req.method() != Method::POST {
+        return Ok(response(StatusCode::METHOD_NOT_ALLOWED, String::new()));
+    }
+    match req.headers().get(header::CONTENT_TYPE) {
+        Some(val) => {
+            if val != "wave" {
+                return Ok(bad_request("content-type header must be `wave`"));
+            }
+        }
+        None => return Ok(bad_request("must have content-encoding header")),
+    }
+
+    let (parts, body) = req.into_parts();
+    let body = body.collect().await?.to_bytes();
+    let body = match std::str::from_utf8(&body) {
+        Ok(body) => body,
+        Err(_) => return Ok(bad_request("invalid utf-8 encoding of body")),
+    };
+
+    let func_call = match wasm_wave::untyped::UntypedFuncCall::parse(body) {
+        Ok(c) => c,
+        Err(e) => return Ok(bad_request(format!("invalid wave syntax: {e}"))),
+    };
+
+    let instance = pre.instantiate_async(&mut store).await?;
+    let mut cur = None;
+
+    for part in parts.uri.path().split('/').filter(|s| !s.is_empty()) {
+        let export = instance
+            .get_export(&mut store, cur.as_ref(), part)
+            .with_context(|| format!("failed to get export for `{part}`"));
+        match export {
+            Ok(i) => cur = Some(i),
+            Err(e) => return Ok(not_found(format!("{e:?}"))),
+        }
+    }
+
+    let export = instance
+        .get_export(&mut store, cur.as_ref(), func_call.name())
+        .with_context(|| format!("failed to get export for `{}`", func_call.name()));
+    let export = match export {
+        Ok(i) => i,
+        Err(e) => return Ok(not_found(format!("{e:?}"))),
+    };
+
+    let func = instance
+        .get_func(&mut store, &export)
+        .with_context(|| format!("failed to get function from instance"));
+    let func = match func {
+        Ok(func) => func,
+        Err(e) => return Ok(not_found(format!("{e:?}"))),
+    };
+
+    let param_tys = func
+        .params(&store)
+        .iter()
+        .cloned()
+        .map(MyType)
+        .collect::<Vec<_>>();
+    let result_tys = func
+        .results(&store)
+        .iter()
+        .cloned()
+        .map(MyType)
+        .collect::<Vec<_>>();
+    let params: Vec<MyVal> = match func_call.to_wasm_params(&param_tys) {
+        Ok(params) => params,
+        Err(e) => {
+            return Ok(bad_request(format!(
+                "invalid wave syntax or type error: {e}"
+            )))
+        }
+    };
+    let params = params.into_iter().map(|v| v.0).collect::<Vec<_>>();
+
+    let mut results = vec![wasmtime::component::Val::S32(0); result_tys.len()];
+    func.call_async(&mut store, &params, &mut results).await?;
+
+    let mut result_strings = Vec::new();
+    for result in results {
+        let mut bytes = Vec::new();
+        let mut writer = wasm_wave::writer::Writer::new(&mut bytes);
+        writer.write_value(&MyVal(result))?;
+        result_strings.push(String::from_utf8(bytes)?);
+    }
+
+    let body = serde_json::to_string(&result_strings)?;
+    return Ok(response(StatusCode::OK, body));
+
+    fn not_found(body: impl Into<String>) -> Response<HyperOutgoingBody> {
+        response(StatusCode::NOT_FOUND, body)
+    }
+
+    fn bad_request(body: impl Into<String>) -> Response<HyperOutgoingBody> {
+        response(StatusCode::BAD_REQUEST, body)
+    }
+
+    fn response(status: StatusCode, body: impl Into<String>) -> Response<HyperOutgoingBody> {
+        let mut response = Response::new(body.into().map_err(|e| match e {}).boxed());
+        *response.status_mut() = status;
+        response
+    }
+
+    #[derive(Clone)]
+    struct MyVal(Val);
+
+    impl wasm::WasmValue for MyVal {
+        type Type = MyType;
+
+        fn kind(&self) -> wasm::WasmTypeKind {
+            match &self.0 {
+                Val::S8(_) => wasm::WasmTypeKind::S8,
+                Val::S16(_) => wasm::WasmTypeKind::S16,
+                Val::S32(_) => wasm::WasmTypeKind::S32,
+                Val::S64(_) => wasm::WasmTypeKind::S64,
+                Val::U8(_) => wasm::WasmTypeKind::U8,
+                Val::U16(_) => wasm::WasmTypeKind::U16,
+                Val::U32(_) => wasm::WasmTypeKind::U32,
+                Val::U64(_) => wasm::WasmTypeKind::U64,
+                Val::Bool(_) => wasm::WasmTypeKind::Bool,
+                Val::Float32(_) => wasm::WasmTypeKind::Float32,
+                Val::Float64(_) => wasm::WasmTypeKind::Float64,
+                Val::Char(_) => wasm::WasmTypeKind::Char,
+                Val::String(_) => wasm::WasmTypeKind::String,
+                Val::List(_) => wasm::WasmTypeKind::List,
+                Val::Record(_) => wasm::WasmTypeKind::Record,
+                Val::Tuple(_) => wasm::WasmTypeKind::Tuple,
+                Val::Variant(..) => wasm::WasmTypeKind::Variant,
+                Val::Enum(_) => wasm::WasmTypeKind::Enum,
+                Val::Flags(_) => wasm::WasmTypeKind::Flags,
+                Val::Option(_) => wasm::WasmTypeKind::Option,
+                Val::Result(_) => wasm::WasmTypeKind::Result,
+                Val::Resource(_) => todo!(),
+            }
+        }
+
+        fn make_bool(val: bool) -> Self {
+            MyVal(Val::Bool(val))
+        }
+        fn make_s8(val: i8) -> Self {
+            MyVal(Val::S8(val))
+        }
+        fn make_s16(val: i16) -> Self {
+            MyVal(Val::S16(val))
+        }
+        fn make_s32(val: i32) -> Self {
+            MyVal(Val::S32(val))
+        }
+        fn make_s64(val: i64) -> Self {
+            MyVal(Val::S64(val))
+        }
+        fn make_u8(val: u8) -> Self {
+            MyVal(Val::U8(val))
+        }
+        fn make_u16(val: u16) -> Self {
+            MyVal(Val::U16(val))
+        }
+        fn make_u32(val: u32) -> Self {
+            MyVal(Val::U32(val))
+        }
+        fn make_u64(val: u64) -> Self {
+            MyVal(Val::U64(val))
+        }
+        fn make_float32(val: f32) -> Self {
+            MyVal(Val::Float32(val))
+        }
+        fn make_float64(val: f64) -> Self {
+            MyVal(Val::Float64(val))
+        }
+        fn make_char(val: char) -> Self {
+            MyVal(Val::Char(val))
+        }
+        fn make_string(val: Cow<'_, str>) -> Self {
+            MyVal(Val::String(val.into_owned()))
+        }
+        fn make_list(
+            _ty: &Self::Type,
+            vals: impl IntoIterator<Item = Self>,
+        ) -> Result<Self, WasmValueError> {
+            Ok(MyVal(Val::List(vals.into_iter().map(|v| v.0).collect())))
+        }
+        fn make_record<'a>(
+            _ty: &Self::Type,
+            fields: impl IntoIterator<Item = (&'a str, Self)>,
+        ) -> Result<Self, WasmValueError> {
+            Ok(MyVal(Val::Record(
+                fields
+                    .into_iter()
+                    .map(|(name, val)| (name.to_string(), val.0))
+                    .collect(),
+            )))
+        }
+        fn make_tuple(
+            _ty: &Self::Type,
+            vals: impl IntoIterator<Item = Self>,
+        ) -> Result<Self, WasmValueError> {
+            Ok(MyVal(Val::Tuple(vals.into_iter().map(|v| v.0).collect())))
+        }
+        fn make_variant(
+            _ty: &Self::Type,
+            case: &str,
+            val: Option<Self>,
+        ) -> Result<Self, WasmValueError> {
+            Ok(MyVal(Val::Variant(
+                case.to_string(),
+                val.map(|v| Box::new(v.0)),
+            )))
+        }
+        fn make_enum(_ty: &Self::Type, case: &str) -> Result<Self, WasmValueError> {
+            Ok(MyVal(Val::Enum(case.to_string())))
+        }
+        fn make_option(_ty: &Self::Type, val: Option<Self>) -> Result<Self, WasmValueError> {
+            Ok(MyVal(Val::Option(val.map(|t| Box::new(t.0)))))
+        }
+        fn make_result(
+            _ty: &Self::Type,
+            val: Result<Option<Self>, Option<Self>>,
+        ) -> Result<Self, WasmValueError> {
+            Ok(MyVal(Val::Result(match val {
+                Ok(v) => Ok(v.map(|v| Box::new(v.0))),
+                Err(v) => Err(v.map(|v| Box::new(v.0))),
+            })))
+        }
+        fn make_flags<'a>(
+            _ty: &Self::Type,
+            names: impl IntoIterator<Item = &'a str>,
+        ) -> Result<Self, WasmValueError> {
+            Ok(MyVal(Val::Flags(
+                names.into_iter().map(|n| n.to_string()).collect(),
+            )))
+        }
+        fn unwrap_bool(&self) -> bool {
+            match &self.0 {
+                Val::Bool(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_s8(&self) -> i8 {
+            match &self.0 {
+                Val::S8(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_s16(&self) -> i16 {
+            match &self.0 {
+                Val::S16(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_s32(&self) -> i32 {
+            match &self.0 {
+                Val::S32(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_s64(&self) -> i64 {
+            match &self.0 {
+                Val::S64(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_u8(&self) -> u8 {
+            match &self.0 {
+                Val::U8(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_u16(&self) -> u16 {
+            match &self.0 {
+                Val::U16(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_u32(&self) -> u32 {
+            match &self.0 {
+                Val::U32(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_u64(&self) -> u64 {
+            match &self.0 {
+                Val::U64(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_float32(&self) -> f32 {
+            match &self.0 {
+                Val::Float32(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_float64(&self) -> f64 {
+            match &self.0 {
+                Val::Float64(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_char(&self) -> char {
+            match &self.0 {
+                Val::Char(b) => *b,
+                _ => panic!(),
+            }
+        }
+        fn unwrap_string(&self) -> Cow<'_, str> {
+            match &self.0 {
+                Val::String(b) => Cow::Borrowed(b),
+                _ => panic!(),
+            }
+        }
+        fn unwrap_list(&self) -> Box<dyn Iterator<Item = Cow<'_, Self>> + '_> {
+            match &self.0 {
+                Val::List(b) => Box::new(b.iter().cloned().map(MyVal).map(Cow::Owned)),
+                _ => panic!(),
+            }
+        }
+        fn unwrap_record(&self) -> Box<dyn Iterator<Item = (Cow<'_, str>, Cow<'_, Self>)> + '_> {
+            match &self.0 {
+                Val::Record(b) => Box::new(b.iter().map(|(name, val)| {
+                    (Cow::Borrowed(name.as_str()), Cow::Owned(MyVal(val.clone())))
+                })),
+                _ => panic!(),
+            }
+        }
+        fn unwrap_tuple(&self) -> Box<dyn Iterator<Item = Cow<'_, Self>> + '_> {
+            match &self.0 {
+                Val::Tuple(b) => Box::new(b.iter().cloned().map(MyVal).map(Cow::Owned)),
+                _ => panic!(),
+            }
+        }
+        fn unwrap_variant(&self) -> (Cow<'_, str>, Option<Cow<'_, Self>>) {
+            match &self.0 {
+                Val::Variant(name, val) => (
+                    Cow::Borrowed(name.as_str()),
+                    val.as_ref().map(|v| Cow::Owned(MyVal((**v).clone()))),
+                ),
+                _ => panic!(),
+            }
+        }
+        fn unwrap_enum(&self) -> Cow<'_, str> {
+            match &self.0 {
+                Val::Enum(name) => Cow::Borrowed(name.as_str()),
+                _ => panic!(),
+            }
+        }
+        fn unwrap_option(&self) -> Option<Cow<'_, Self>> {
+            match &self.0 {
+                Val::Option(val) => val.as_ref().map(|v| Cow::Owned(MyVal((**v).clone()))),
+                _ => panic!(),
+            }
+        }
+        fn unwrap_result(&self) -> Result<Option<Cow<'_, Self>>, Option<Cow<'_, Self>>> {
+            match &self.0 {
+                Val::Result(Ok(val)) => Ok(val.as_ref().map(|v| Cow::Owned(MyVal((**v).clone())))),
+                Val::Result(Err(val)) => {
+                    Err(val.as_ref().map(|v| Cow::Owned(MyVal((**v).clone()))))
+                }
+                _ => panic!(),
+            }
+        }
+        fn unwrap_flags(&self) -> Box<dyn Iterator<Item = Cow<'_, str>> + '_> {
+            match &self.0 {
+                Val::Flags(vals) => Box::new(vals.iter().map(|s| Cow::Borrowed(s.as_str()))),
+                _ => panic!(),
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct MyType(Type);
+
+    impl wasm::WasmType for MyType {
+        fn kind(&self) -> wasm::WasmTypeKind {
+            match &self.0 {
+                Type::S8 => wasm::WasmTypeKind::S8,
+                Type::S16 => wasm::WasmTypeKind::S16,
+                Type::S32 => wasm::WasmTypeKind::S32,
+                Type::S64 => wasm::WasmTypeKind::S64,
+                Type::U8 => wasm::WasmTypeKind::U8,
+                Type::U16 => wasm::WasmTypeKind::U16,
+                Type::U32 => wasm::WasmTypeKind::U32,
+                Type::U64 => wasm::WasmTypeKind::U64,
+                Type::Bool => wasm::WasmTypeKind::Bool,
+                Type::Float32 => wasm::WasmTypeKind::Float32,
+                Type::Float64 => wasm::WasmTypeKind::Float64,
+                Type::Char => wasm::WasmTypeKind::Char,
+                Type::String => wasm::WasmTypeKind::String,
+                Type::List(_) => wasm::WasmTypeKind::List,
+                Type::Record(_) => wasm::WasmTypeKind::Record,
+                Type::Tuple(_) => wasm::WasmTypeKind::Tuple,
+                Type::Variant(..) => wasm::WasmTypeKind::Variant,
+                Type::Enum(_) => wasm::WasmTypeKind::Enum,
+                Type::Flags(_) => wasm::WasmTypeKind::Flags,
+                Type::Option(_) => wasm::WasmTypeKind::Option,
+                Type::Result(_) => wasm::WasmTypeKind::Result,
+                Type::Own(_) | Type::Borrow(_) => todo!(),
+            }
+        }
+
+        fn list_element_type(&self) -> Option<Self> {
+            match &self.0 {
+                Type::List(ty) => Some(MyType(ty.ty())),
+                _ => None,
+            }
+        }
+        fn record_fields(&self) -> Box<dyn Iterator<Item = (Cow<'_, str>, Self)> + '_> {
+            match &self.0 {
+                Type::Record(ty) => {
+                    Box::new(ty.fields().map(|f| (Cow::Borrowed(f.name), MyType(f.ty))))
+                }
+                _ => Box::new(std::iter::empty()),
+            }
+        }
+        fn tuple_element_types(&self) -> Box<dyn Iterator<Item = Self> + '_> {
+            match &self.0 {
+                Type::Tuple(ty) => Box::new(ty.types().map(MyType)),
+                _ => Box::new(std::iter::empty()),
+            }
+        }
+        fn variant_cases(&self) -> Box<dyn Iterator<Item = (Cow<'_, str>, Option<Self>)> + '_> {
+            match &self.0 {
+                Type::Variant(ty) => Box::new(
+                    ty.cases()
+                        .map(|f| (Cow::Borrowed(f.name), f.ty.map(MyType))),
+                ),
+                _ => Box::new(std::iter::empty()),
+            }
+        }
+        fn enum_cases(&self) -> Box<dyn Iterator<Item = Cow<'_, str>> + '_> {
+            match &self.0 {
+                Type::Enum(ty) => Box::new(ty.names().map(Cow::Borrowed)),
+                _ => Box::new(std::iter::empty()),
+            }
+        }
+        fn option_some_type(&self) -> Option<Self> {
+            match &self.0 {
+                Type::Option(ty) => Some(MyType(ty.ty())),
+                _ => None,
+            }
+        }
+        fn result_types(&self) -> Option<(Option<Self>, Option<Self>)> {
+            match &self.0 {
+                Type::Result(ty) => Some((ty.ok().map(MyType), ty.err().map(MyType))),
+                _ => None,
+            }
+        }
+        fn flags_names(&self) -> Box<dyn Iterator<Item = Cow<'_, str>> + '_> {
+            match &self.0 {
+                Type::Flags(ty) => Box::new(ty.names().map(Cow::Borrowed)),
+                _ => Box::new(std::iter::empty()),
+            }
         }
     }
 }

@@ -79,6 +79,7 @@ tokio = { workspace = true, optional = true, features = [ "signal", "macros" ] }
 hyper = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
+wasm-wave = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true, features = ["mm", "param", "process"] }
@@ -276,6 +277,7 @@ wasm-smith = "0.217.0"
 wasm-mutate = "0.217.0"
 wit-parser = "0.217.0"
 wit-component = "0.217.0"
+wasm-wave = { version = "0.217.0", default-features = false }
 
 # Non-Bytecode Alliance maintained dependencies:
 # --------------------------
@@ -437,7 +439,7 @@ gc = ["wasmtime-cli-flags/gc"]
 
 # CLI subcommands for the `wasmtime` executable. See `wasmtime $cmd --help`
 # for more information on each subcommand.
-serve = ["wasi-http", "component-model", "dep:http-body-util", "dep:http"]
+serve = ["wasi-http", "component-model", "dep:http-body-util", "dep:http", "dep:wasm-wave"]
 explore = ["dep:wasmtime-explorer", "dep:tempfile"]
 wast = ["dep:wasmtime-wast"]
 config = ["cache"]
