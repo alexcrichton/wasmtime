@@ -1,6 +1,8 @@
 name: CI
 on:
   push:
+    branches:
+    - 'bump-test'
 
 defaults:
   run:
@@ -14,12 +16,10 @@ concurrency:
 
 jobs:
   build:
-    needs: determine
-    if: needs.determine.outputs.run-full
-    name: Release build for ${{ matrix.build }}
-    runs-on: ${{ matrix.os }}
+    name: Release build for ${{ matrix.rust }}
+    runs-on: windows-latest
     strategy:
-      fail-fast: ${{ github.event_name != 'pull_request' }}
+      fail-fast: false
       matrix:
         include:
           - rust: nightly-2024-10-22
