@@ -40,7 +40,7 @@ else
   bin_flags="--features all-arch,component-model"
 fi
 
-cargo build --release $flags --target $target -p wasmtime-cli $bin_flags --features run
+#cargo build --release $flags --target $target -p wasmtime-cli $bin_flags --features run
 
 mkdir -p target/c-api-build
 cd target/c-api-build
