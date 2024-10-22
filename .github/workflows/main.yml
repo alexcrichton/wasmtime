@@ -23,6 +23,27 @@ jobs:
       matrix:
         include:
           - rust: nightly-2024-10-22
+          - rust: nightly-2024-10-21
+          - rust: nightly-2024-10-20
+          - rust: nightly-2024-10-19
+          - rust: nightly-2024-10-18
+          - rust: nightly-2024-10-17
+          - rust: nightly-2024-10-16
+          - rust: nightly-2024-10-15
+          - rust: nightly-2024-10-14
+          - rust: nightly-2024-10-13
+          - rust: nightly-2024-10-12
+          - rust: nightly-2024-10-11
+          - rust: nightly-2024-10-10
+          - rust: nightly-2024-10-09
+          - rust: nightly-2024-10-08
+          - rust: nightly-2024-10-07
+          - rust: nightly-2024-10-06
+          - rust: nightly-2024-10-05
+          - rust: nightly-2024-10-04
+          - rust: nightly-2024-10-03
+          - rust: nightly-2024-10-02
+          - rust: nightly-2024-10-01
 
     steps:
     - uses: actions/checkout@v4
