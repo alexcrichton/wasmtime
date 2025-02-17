@@ -2868,6 +2868,7 @@
 ;; Helper for creating `mul` instructions or `imul` instructions (depending
 ;; on `signed`)
 (decl x64_mul (Type bool Gpr GprMem) ValueRegs)
+(rule 1 (x64_mul $I16 true src1 src2) (x64_mulw_m src1 src2))
 (rule (x64_mul ty signed src1 src2)
       (let ((dst_lo WritableGpr (temp_writable_gpr))
             (dst_hi WritableGpr (temp_writable_gpr))
@@ -2980,7 +2981,7 @@
 ;; GprMem => AssemblerReadGprMem
 (decl pure convert_gpr_mem_to_assembler_read_gpr_mem (GprMem) AssemblerReadGprMem)
 (extern constructor convert_gpr_mem_to_assembler_read_gpr_mem convert_gpr_mem_to_assembler_read_gpr_mem)
-(convert GprMem AssemblerReadGprMem convert_gpr_to_assembler_read_gpr_mem)
+(convert GprMem AssemblerReadGprMem convert_gpr_mem_to_assembler_read_gpr_mem)
 
 ;; GprMem => AssemblerReadWriteGprMem
 (decl pure convert_gpr_mem_to_assembler_read_write_gpr_mem (GprMem) AssemblerReadWriteGprMem)

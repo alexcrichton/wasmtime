@@ -187,7 +187,7 @@ impl dsl::Inst {
         f.indent(|f| {
             fmtln!(f, "fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {{");
             f.indent(|f| {
-                for op in &self.format.operands {
+                for op in self.format.operands.iter().filter(|o| o.disas) {
                     let location = op.location;
                     let to_string = location.generate_to_string(op.extension);
                     fmtln!(f, "let {location} = {to_string};");
@@ -221,30 +221,59 @@ impl dsl::Inst {
     /// # Panics
     ///
     /// This function panics if the instruction has no operands.
-    pub fn generate_isle_macro(&self, f: &mut Formatter, read_ty: &str, read_write_ty: &str) {
+    pub fn generate_isle_macro(&self, f: &mut Formatter, read_ty: &str, read_write_ty: &str, write_ty: &str) {
         use dsl::OperandKind::*;
         let struct_name = self.name();
-        let operands = self
-            .format
-            .operands
-            .iter()
-            .map(|o| (o.location, o.generate_mut_ty(read_ty, read_write_ty)))
-            .collect::<Vec<_>>();
-        let ret_ty = match self.format.operands.first().unwrap().location.kind() {
-            Imm(_) => unreachable!(),
-            Reg(_) | FixedReg(_) => format!("cranelift_assembler_x64::Gpr<{read_write_ty}>"),
-            RegMem(_) => format!("cranelift_assembler_x64::GprMem<{read_write_ty}, {read_ty}>"),
-        };
-        let ret_val = match self.format.operands.first().unwrap().location.kind() {
-            Imm(_) => unreachable!(),
-            FixedReg(loc) | Reg(loc) | RegMem(loc) => format!("{loc}.clone()"),
-        };
-        let params = comma_join(
-            operands
-                .iter()
-                .map(|(l, ty)| format!("{l}: &cranelift_assembler_x64::{ty}")),
-        );
-        let args = comma_join(operands.iter().map(|(l, _)| format!("{l}.clone()")));
+        let mut params = Vec::new();
+        let mut args = Vec::new();
+        let mut rets = Vec::new();
+        for o in self.format.operands.iter() {
+            let kind = o.location.kind();
+            let arg = if o.mutability.is_read() {
+                let ty = o.generate_mut_ty(read_ty, read_write_ty, write_ty);
+                params.push(format!("{}: &cranelift_assembler_x64::{ty}", o.location));
+                format!("{}.clone()", o.location)
+            } else {
+                //..
+            };
+            args.push(arg);
+        }
+        // let operands = self
+        //     .format
+        //     .operands
+        //     .iter()
+        //     .filter(|r| r.mutability.is_read())
+        //     .map(|o| (o.location, o.generate_mut_ty(read_ty, read_write_ty, write_ty)))
+        //     .collect::<Vec<_>>();
+
+        // let rets = self
+        //     .format
+        //     .operands
+        //     .iter()
+        //     .filter(|r| r.mutability.is_write())
+        //     .map(|o| o.location.kind())
+        //     .collect::<Vec<_>>();
+        // let (ret_ty, ret_val) = match &rets[..] {
+        //     [FixedReg(loc) | Reg(loc)] => {
+        //         (format!("cranelift_assembler_x64::Gpr<{read_write_ty}>"), format!("{loc}.clone()"))
+        //     }
+        //     [RegMem(loc)] => (
+        //         format!("cranelift_assembler_x64::GprMem<{read_write_ty}, {read_ty}>"),
+        //         format!("{loc}.clone()"),
+        //     ),
+        //     [FixedReg(a) | Reg(a), FixedReg(b) | Reg(b)] => ("ValueRegs".to_string(), format!("xxx")),
+        //     _ => panic!("don't know how to handle {rets:?} in ISLE"),
+        // };
+        // let ret_ty = match self.format.operands.first().unwrap().location.kind() {
+        //     Imm(_) => unreachable!(),
+        //     Reg(_) | FixedReg(_) => format!("cranelift_assembler_x64::Gpr<{read_write_ty}>"),
+        // };
+        // let ret_val = match self.format.operands.first().unwrap().location.kind() {
+        //     Imm(_) => unreachable!(),
+        //     FixedReg(loc) | Reg(loc) | RegMem(loc) => format!("{loc}.clone()"),
+        // };
+        let params = params.join(", ");
+        let args = args.join(", ");
 
         // TODO: parameterize CraneliftRegisters?
         fmtln!(f, "fn x64_{struct_name}(&mut self, {params}) -> {ret_ty} {{",);
@@ -271,6 +300,7 @@ impl dsl::Inst {
             .format
             .operands
             .iter()
+            .filter(|r| r.mutability.is_read())
             .map(|o| match o.location.kind() {
                 Imm(loc) => {
                     let bits = loc.bits();
@@ -285,10 +315,19 @@ impl dsl::Inst {
             })
             .collect::<Vec<_>>()
             .join(" ");
-        let ret = match self.format.operands.first().unwrap().location.kind() {
-            Imm(_) => unreachable!(),
-            FixedReg(_) | Reg(_) => "AssemblerReadWriteGpr",
-            RegMem(_) => "AssemblerReadWriteGprMem",
+
+        let rets = self
+            .format
+            .operands
+            .iter()
+            .filter(|r| r.mutability.is_write())
+            .map(|o| o.location.kind())
+            .collect::<Vec<_>>();
+        let ret = match &rets[..] {
+            [FixedReg(_) | Reg(_)] => "AssemblerReadWriteGpr",
+            [RegMem(_)] => "AssemblerReadWriteGprMem",
+            [FixedReg(_) | Reg(_), FixedReg(_) | Reg(_)] => "ValueRegs",
+            _ => panic!("don't know how to handle {rets:?} in ISLE"),
         };
 
         f.line(format!("(decl {rule_name} ({params}) {ret})"), None);

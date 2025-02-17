@@ -130,6 +130,22 @@ impl AsReg for Rcx {
     }
 }
 
+/// A fixed register that always represents `%rdx`.
+///
+/// Suitable for use as `ReadRdx` or `ReadWriteRdx` in the `Registers` trait.
+#[derive(Clone, Copy, Debug)]
+pub struct Rdx;
+
+impl AsReg for Rdx {
+    fn new(enc: u8) -> Self {
+        assert_eq!(enc, enc::RDX);
+        Rdx
+    }
+    fn enc(&self) -> u8 {
+        enc::RDX
+    }
+}
+
 /// Encode x64 registers.
 pub mod enc {
     use super::Size;

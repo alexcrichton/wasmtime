@@ -2,6 +2,7 @@
 
 mod add;
 mod and;
+mod mul;
 mod or;
 mod shld;
 mod sub;
@@ -14,6 +15,7 @@ pub fn list() -> Vec<Inst> {
     let mut all = vec![];
     all.extend(add::list());
     all.extend(and::list());
+    all.extend(mul::list());
     all.extend(or::list());
     all.extend(shld::list());
     all.extend(sub::list());

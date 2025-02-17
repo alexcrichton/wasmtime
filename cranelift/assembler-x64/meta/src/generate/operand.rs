@@ -8,6 +8,7 @@ impl dsl::Operand {
         match self.location.kind() {
             FixedReg(al | ax | eax | rax) => Some(format!("Gpr<R::{}Rax>", self.mutability.generate_type())),
             FixedReg(cl) => Some(format!("Gpr<R::{}Rcx>", self.mutability.generate_type())),
+            FixedReg(dx | edx | rdx) => Some(format!("Gpr<R::{}Rdx>", self.mutability.generate_type())),
             FixedReg(other) => panic!("don't know how to generate type for {other:?}"),
             Imm(loc) => {
                 let bits = loc.bits();
@@ -23,12 +24,13 @@ impl dsl::Operand {
     }
 
     #[must_use]
-    pub fn generate_mut_ty(&self, read_ty: &str, read_write_ty: &str) -> String {
+    pub fn generate_mut_ty(&self, read_ty: &str, read_write_ty: &str, write_ty: &str) -> String {
         use dsl::Mutability::*;
         use dsl::OperandKind::*;
         let pick_ty = match self.mutability {
             Read => read_ty,
             ReadWrite => read_write_ty,
+            Write => write_ty,
         };
         match self.location.kind() {
             Imm(loc) => {
@@ -55,7 +57,7 @@ impl dsl::Location {
             None => String::new(),
         };
         match self {
-            al | ax | eax | rax | cl => None,
+            al | ax | eax | rax | cl | dx | edx | rdx => None,
             imm8 => Some("Imm8".into()),
             imm16 => Some("Imm16".into()),
             imm32 => Some("Imm32".into()),
@@ -77,7 +79,7 @@ impl dsl::Location {
                     format!("self.{self}.to_string()")
                 }
             }
-            al | ax | eax | rax | cl | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => {
+            al | ax | eax | rax | cl | dx | edx | rdx | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => {
                 match self.generate_size() {
                     Some(size) => format!("self.{self}.to_string({size})"),
                     None => unreachable!(),
@@ -93,9 +95,9 @@ impl dsl::Location {
         match self {
             imm8 | imm16 | imm32 => None,
             al | cl | r8 | rm8 => Some("Size::Byte"),
-            ax | r16 | rm16 => Some("Size::Word"),
-            eax | r32 | rm32 => Some("Size::Doubleword"),
-            rax | r64 | rm64 => Some("Size::Quadword"),
+            ax | dx | r16 | rm16 => Some("Size::Word"),
+            eax | edx | r32 | rm32 => Some("Size::Doubleword"),
+            rax | rdx | r64 | rm64 => Some("Size::Quadword"),
         }
     }
 
@@ -106,6 +108,7 @@ impl dsl::Location {
         use dsl::Location::*;
         match self {
             al | ax | eax | rax => Some("rax"),
+            dx | edx | rdx => Some("rdx"),
             cl => Some("rcx"),
             imm8 | imm16 | imm32 | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => None,
         }
@@ -119,6 +122,7 @@ impl dsl::Location {
         match self {
             al | ax | eax | rax => Some("reg::enc::RAX"),
             cl => Some("reg::enc::RCX"),
+            dx | edx | rdx => Some("reg::enc::RDX"),
             imm8 | imm16 | imm32 | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => None,
         }
     }
@@ -130,6 +134,7 @@ impl dsl::Mutability {
         match self {
             dsl::Mutability::Read => "read",
             dsl::Mutability::ReadWrite => "read_write",
+            dsl::Mutability::Write => "write",
         }
     }
 
@@ -138,6 +143,7 @@ impl dsl::Mutability {
         match self {
             dsl::Mutability::Read => "Read",
             dsl::Mutability::ReadWrite => "ReadWrite",
+            dsl::Mutability::Write => "Write",
         }
     }
 }

@@ -13,10 +13,16 @@ pub struct CraneliftRegisters;
 impl asm::Registers for CraneliftRegisters {
     type ReadGpr = Gpr;
     type ReadWriteGpr = PairedGpr;
+    type WriteGpr = WritableGpr;
     type ReadRax = Gpr;
+    type WriteRax = WritableGpr;
     type ReadWriteRax = PairedGpr;
     type ReadRcx = Gpr;
+    type WriteRcx = WritableGpr;
     type ReadWriteRcx = PairedGpr;
+    type ReadRdx = Gpr;
+    type WriteRdx = WritableGpr;
+    type ReadWriteRdx = PairedGpr;
 }
 
 /// A pair of registers, one for reading and one for writing.
@@ -56,6 +62,17 @@ impl asm::AsReg for Gpr {
     }
 }
 
+/// This bridges the gap between codegen and assembler register types.
+impl asm::AsReg for WritableGpr {
+    fn enc(&self) -> u8 {
+        self.to_reg().enc()
+    }
+
+    fn new(_: u8) -> Self {
+        panic!("disallow creation of new assembler registers")
+    }
+}
+
 /// A helper method for extracting the hardware encoding of a register.
 #[inline]
 fn enc(gpr: &Gpr) -> u8 {
@@ -87,6 +104,10 @@ impl<'a, T: OperandVisitor> asm::RegisterVisitor<CraneliftRegisters> for Regallo
         self.collector.reg_reuse_def(write, 0);
     }
 
+    fn write(&mut self, reg: &mut WritableGpr) {
+        self.collector.reg_def(reg);
+    }
+
     fn read_rax(&mut self, reg: &mut Gpr) {
         self.collector.reg_fixed_use(reg, regs::rax());
     }
@@ -97,6 +118,10 @@ impl<'a, T: OperandVisitor> asm::RegisterVisitor<CraneliftRegisters> for Regallo
         self.collector.reg_reuse_def(write, 0);
     }
 
+    fn write_rax(&mut self, reg: &mut WritableGpr) {
+        self.collector.reg_fixed_def(reg, regs::rax());
+    }
+
     fn read_rcx(&mut self, reg: &mut Gpr) {
         self.collector.reg_fixed_use(reg, regs::rcx());
     }
@@ -105,6 +130,24 @@ impl<'a, T: OperandVisitor> asm::RegisterVisitor<CraneliftRegisters> for Regallo
         let PairedGpr { read, write } = reg;
         self.collector.reg_fixed_use(read, regs::rcx());
         self.collector.reg_reuse_def(write, 0);
+    }
+
+    fn write_rcx(&mut self, reg: &mut WritableGpr) {
+        self.collector.reg_fixed_def(reg, regs::rcx());
+    }
+
+    fn read_rdx(&mut self, reg: &mut Gpr) {
+        self.collector.reg_fixed_use(reg, regs::rdx());
+    }
+
+    fn read_write_rdx(&mut self, reg: &mut PairedGpr) {
+        let PairedGpr { read, write } = reg;
+        self.collector.reg_fixed_use(read, regs::rdx());
+        self.collector.reg_reuse_def(write, 0);
+    }
+
+    fn write_rdx(&mut self, reg: &mut WritableGpr) {
+        self.collector.reg_fixed_def(reg, regs::rdx());
     }
 }
 

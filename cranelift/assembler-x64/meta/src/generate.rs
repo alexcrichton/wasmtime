@@ -41,7 +41,7 @@ pub fn isle_macro(f: &mut Formatter, insts: &[dsl::Inst]) {
         fmtln!(f, "() => {{");
         f.indent(|f| {
             for inst in insts {
-                inst.generate_isle_macro(f, "Gpr", "PairedGpr");
+                inst.generate_isle_macro(f, "Gpr", "PairedGpr", "Gpr");
             }
         });
         fmtln!(f, "}};");
@@ -59,6 +59,7 @@ pub fn isle_definitions(f: &mut Formatter, insts: &[dsl::Inst]) {
     f.line("(type AssemblerImm32 extern (enum))", None);
     f.line("(type AssemblerSimm32 extern (enum))", None);
     f.line("(type AssemblerReadGpr extern (enum))", None);
+    f.line("(type AssemblerWriteGpr extern (enum))", None);
     f.line("(type AssemblerReadWriteGpr extern (enum))", None);
     f.line("(type AssemblerReadGprMem extern (enum))", None);
     f.line("(type AssemblerReadWriteGprMem extern (enum))", None);

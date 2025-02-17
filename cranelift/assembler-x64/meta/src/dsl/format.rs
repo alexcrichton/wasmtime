@@ -37,6 +37,7 @@ pub fn rw(location: Location) -> Operand {
         location,
         mutability: Mutability::ReadWrite,
         extension: Extension::default(),
+        disas: true,
     }
 }
 
@@ -47,6 +48,18 @@ pub fn r(location: Location) -> Operand {
         location,
         mutability: Mutability::Read,
         extension: Extension::None,
+        disas: true,
+    }
+}
+
+/// An abbreviated constructor for a "write" operand.
+#[must_use]
+pub fn w(location: Location) -> Operand {
+    Operand {
+        location,
+        mutability: Mutability::Write,
+        extension: Extension::None,
+        disas: true,
     }
 }
 
@@ -63,6 +76,7 @@ pub fn sxq(location: Location) -> Operand {
         location,
         mutability: Mutability::Read,
         extension: Extension::SignExtendQuad,
+        disas: true,
     }
 }
 
@@ -79,6 +93,7 @@ pub fn sxl(location: Location) -> Operand {
         location,
         mutability: Mutability::Read,
         extension: Extension::SignExtendLong,
+        disas: true,
     }
 }
 
@@ -95,6 +110,7 @@ pub fn sxw(location: Location) -> Operand {
         location,
         mutability: Mutability::Read,
         extension: Extension::SignExtendWord,
+        disas: true,
     }
 }
 
@@ -166,11 +182,20 @@ pub struct Operand {
     pub mutability: Mutability,
     /// Some operands are sign- or zero-extended.
     pub extension: Extension,
+    /// TODO
+    pub disas: bool,
+}
+
+impl Operand {
+    /// TODO
+    pub fn disas(self, disas: bool) -> Operand {
+        Operand { disas, ..self }
+    }
 }
 
 impl core::fmt::Display for Operand {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        let Self { location, mutability, extension } = self;
+        let Self { location, mutability, extension, disas: _ } = self;
         write!(f, "{location}")?;
         let has_default_mutability = matches!(mutability, Mutability::Read);
         let has_default_extension = matches!(extension, Extension::None);
@@ -188,7 +213,7 @@ impl From<Location> for Operand {
     fn from(location: Location) -> Self {
         let mutability = Mutability::default();
         let extension = Extension::default();
-        Self { location, mutability, extension }
+        Self { location, mutability, extension, disas: true }
     }
 }
 
@@ -202,6 +227,10 @@ pub enum Location {
     rax,
 
     cl,
+
+    dx,
+    edx,
+    rdx,
 
     imm8,
     imm16,
@@ -225,9 +254,9 @@ impl Location {
         use Location::*;
         match self {
             al | cl | imm8 | r8 | rm8 => 8,
-            ax | imm16 | r16 | rm16 => 16,
-            eax | imm32 | r32 | rm32 => 32,
-            rax | r64 | rm64 => 64,
+            ax | dx | imm16 | r16 | rm16 => 16,
+            eax | edx | imm32 | r32 | rm32 => 32,
+            rax | rdx | r64 | rm64 => 64,
         }
     }
 
@@ -242,7 +271,7 @@ impl Location {
     pub fn uses_memory(&self) -> bool {
         use Location::*;
         match self {
-            al | cl | ax | eax | rax | imm8 | imm16 | imm32 | r8 | r16 | r32 | r64 => false,
+            al | cl | ax | eax | rax | dx | edx | rdx | imm8 | imm16 | imm32 | r8 | r16 | r32 | r64 => false,
             rm8 | rm16 | rm32 | rm64 => true,
         }
     }
@@ -254,7 +283,9 @@ impl Location {
         use Location::*;
         match self {
             imm8 | imm16 | imm32 => false,
-            al | ax | eax | rax | cl | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => true,
+            al | ax | eax | rax | cl | dx | edx | rdx | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => {
+                true
+            }
         }
     }
 
@@ -263,7 +294,7 @@ impl Location {
     pub fn kind(&self) -> OperandKind {
         use Location::*;
         match self {
-            al | ax | eax | rax | cl => OperandKind::FixedReg(*self),
+            al | ax | eax | rax | cl | dx | edx | rdx => OperandKind::FixedReg(*self),
             imm8 | imm16 | imm32 => OperandKind::Imm(*self),
             r8 | r16 | r32 | r64 => OperandKind::Reg(*self),
             rm8 | rm16 | rm32 | rm64 => OperandKind::RegMem(*self),
@@ -281,6 +312,10 @@ impl core::fmt::Display for Location {
             rax => write!(f, "rax"),
 
             cl => write!(f, "cl"),
+
+            dx => write!(f, "dx"),
+            edx => write!(f, "edx"),
+            rdx => write!(f, "rdx"),
 
             imm8 => write!(f, "imm8"),
             imm16 => write!(f, "imm16"),
@@ -324,6 +359,7 @@ pub enum OperandKind {
 pub enum Mutability {
     Read,
     ReadWrite,
+    Write,
 }
 
 impl Default for Mutability {
@@ -332,11 +368,32 @@ impl Default for Mutability {
     }
 }
 
+impl Mutability {
+    /// TODO
+    pub fn is_read(&self) -> bool {
+        match self {
+            Mutability::Read => true,
+            Mutability::ReadWrite => true,
+            Mutability::Write => false,
+        }
+    }
+
+    /// TODO
+    pub fn is_write(&self) -> bool {
+        match self {
+            Mutability::Read => false,
+            Mutability::ReadWrite => true,
+            Mutability::Write => true,
+        }
+    }
+}
+
 impl core::fmt::Display for Mutability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Read => write!(f, "r"),
             Self::ReadWrite => write!(f, "rw"),
+            Self::Write => write!(f, "w"),
         }
     }
 }

@@ -18,6 +18,7 @@ impl dsl::Format {
         let ordered_ops: Vec<_> = self
             .operands
             .iter()
+            .filter(|o| o.disas)
             .rev()
             .map(|o| format!("{{{}}}", o.location))
             .collect();
@@ -93,7 +94,7 @@ impl dsl::Format {
                 fmtln!(f, "let digit = 0;");
                 fmtln!(f, "rex.emit_two_op(buf, digit, {dst}.enc());");
             }
-            [RegMem(dst), Imm(_)] => {
+            [RegMem(dst), Imm(_)] | [FixedReg(_), RegMem(dst)] | [FixedReg(_), FixedReg(_), RegMem(dst)] => {
                 let digit = rex
                     .digit
                     .expect("REX digit must be set for operands: [RegMem, Imm]");
@@ -105,7 +106,7 @@ impl dsl::Format {
                 });
                 fmtln!(f, "}}");
             }
-            [Reg(dst), RegMem(src)] => {
+            [Reg(dst), RegMem(src)] | [Reg(dst), RegMem(src), Imm(_)] => {
                 fmtln!(f, "let {dst} = self.{dst}.enc();");
                 fmtln!(f, "match &self.{src} {{");
                 f.indent(|f| {
@@ -144,7 +145,7 @@ impl dsl::Format {
             [FixedReg(_), Imm(_)] => {
                 // No need to emit a ModRM byte: we know the register used.
             }
-            [RegMem(dst), Imm(_)] => {
+            [RegMem(dst), Imm(_)] | [FixedReg(_), RegMem(dst)] | [FixedReg(_), FixedReg(_), RegMem(dst)] => {
                 let digit = rex
                     .digit
                     .expect("REX digit must be set for operands: [RegMem, Imm]");
@@ -156,7 +157,7 @@ impl dsl::Format {
                 });
                 fmtln!(f, "}}");
             }
-            [Reg(dst), RegMem(src)] => {
+            [Reg(dst), RegMem(src)] | [Reg(dst), RegMem(src), Imm(_)] => {
                 fmtln!(f, "let {dst} = self.{dst}.enc();");
                 fmtln!(f, "match &self.{src} {{");
                 f.indent(|f| {

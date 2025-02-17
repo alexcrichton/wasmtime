@@ -107,12 +107,18 @@ pub trait Registers {
     /// An x64 general purpose register that may be read.
     type ReadGpr: AsReg;
 
+    /// An x64 general purpose register that may be written.
+    type WriteGpr: AsReg;
+
     /// An x64 general purpose register that may be read and written.
     type ReadWriteGpr: AsReg;
 
     /// Same as `ReadGpr`, but used to represent a register that is
     /// unconditionally allocated to `%rax`.
     type ReadRax: AsReg;
+    /// Same as `WriteGpr`, but used to represent a register that is
+    /// unconditionally allocated to `%rax`.
+    type WriteRax: AsReg;
     /// Same as `ReadWriteGpr`, but used to represent a register that is
     /// unconditionally allocated to `%rax`.
     type ReadWriteRax: AsReg;
@@ -120,9 +126,22 @@ pub trait Registers {
     /// Same as `ReadGpr`, but used to represent a register that is
     /// unconditionally allocated to `%rcx`.
     type ReadRcx: AsReg;
+    /// Same as `WriteGpr`, but used to represent a register that is
+    /// unconditionally allocated to `%rcx`.
+    type WriteRcx: AsReg;
     /// Same as `ReadWriteGpr`, but used to represent a register that is
     /// unconditionally allocated to `%rcx`.
     type ReadWriteRcx: AsReg;
+
+    /// Same as `ReadGpr`, but used to represent a register that is
+    /// unconditionally allocated to `%rdx`.
+    type ReadRdx: AsReg;
+    /// Same as `WriteGpr`, but used to represent a register that is
+    /// unconditionally allocated to `%rdx`.
+    type WriteRdx: AsReg;
+    /// Same as `ReadWriteGpr`, but used to represent a register that is
+    /// unconditionally allocated to `%rdx`.
+    type ReadWriteRdx: AsReg;
 }
 
 /// Describe how to interact with an external register type.
@@ -163,16 +182,33 @@ pub trait RegisterVisitor<R: Registers> {
     fn read(&mut self, reg: &mut R::ReadGpr);
     /// Visit a read-write register.
     fn read_write(&mut self, reg: &mut R::ReadWriteGpr);
+    /// Visit a write-only register.
+    fn write(&mut self, reg: &mut R::WriteGpr);
     /// Visit a register that must be allocated to `%rax` after allocation. This
     /// register is a read-only register.
     fn read_rax(&mut self, reg: &mut R::ReadRax);
     /// Visit a register that must be allocated to `%rax` after allocation. This
     /// register is a read-write register.
     fn read_write_rax(&mut self, reg: &mut R::ReadWriteRax);
+    /// Visit a register that must be allocated to `%rax` after allocation. This
+    /// register is a written register.
+    fn write_rax(&mut self, reg: &mut R::WriteRax);
     /// Visit a register that must be allocated to `%rcx` after allocation. This
     /// register is a read-only register.
     fn read_rcx(&mut self, reg: &mut R::ReadRcx);
     /// Visit a register that must be allocated to `%rcx` after allocation. This
     /// register is a read-write register.
     fn read_write_rcx(&mut self, reg: &mut R::ReadWriteRcx);
+    /// Visit a register that must be allocated to `%rcx` after allocation. This
+    /// register is a written register.
+    fn write_rcx(&mut self, reg: &mut R::WriteRcx);
+    /// Visit a register that must be allocated to `%rdx` after allocation. This
+    /// register is a read-only register.
+    fn read_rdx(&mut self, reg: &mut R::ReadRdx);
+    /// Visit a register that must be allocated to `%rdx` after allocation. This
+    /// register is a read-write register.
+    fn read_write_rdx(&mut self, reg: &mut R::ReadWriteRdx);
+    /// Visit a register that must be allocated to `%rdx` after allocation. This
+    /// register is a written register.
+    fn write_rdx(&mut self, reg: &mut R::WriteRdx);
 }
