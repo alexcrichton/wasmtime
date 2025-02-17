@@ -98,6 +98,38 @@ impl<R: AsReg> AsMut<R> for NonRspGpr<R> {
     }
 }
 
+/// A fixed register that always represents `%rax`.
+///
+/// Suitable for use as `ReadRax` or `ReadWriteRax` in the `Registers` trait.
+#[derive(Clone, Copy, Debug)]
+pub struct Rax;
+
+impl AsReg for Rax {
+    fn new(enc: u8) -> Self {
+        assert_eq!(enc, enc::RAX);
+        Rax
+    }
+    fn enc(&self) -> u8 {
+        enc::RAX
+    }
+}
+
+/// A fixed register that always represents `%rcx`.
+///
+/// Suitable for use as `ReadRcx` or `ReadWriteRcx` in the `Registers` trait.
+#[derive(Clone, Copy, Debug)]
+pub struct Rcx;
+
+impl AsReg for Rcx {
+    fn new(enc: u8) -> Self {
+        assert_eq!(enc, enc::RCX);
+        Rcx
+    }
+    fn enc(&self) -> u8 {
+        enc::RCX
+    }
+}
+
 /// Encode x64 registers.
 pub mod enc {
     use super::Size;

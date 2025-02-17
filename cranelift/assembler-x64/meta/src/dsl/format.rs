@@ -253,8 +253,8 @@ impl Location {
     pub fn uses_variable_register(&self) -> bool {
         use Location::*;
         match self {
-            al | ax | eax | rax | cl | imm8 | imm16 | imm32 => false,
-            r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => true,
+            imm8 | imm16 | imm32 => false,
+            al | ax | eax | rax | cl | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => true,
         }
     }
 

@@ -109,6 +109,20 @@ pub trait Registers {
 
     /// An x64 general purpose register that may be read and written.
     type ReadWriteGpr: AsReg;
+
+    /// Same as `ReadGpr`, but used to represent a register that is
+    /// unconditionally allocated to `%rax`.
+    type ReadRax: AsReg;
+    /// Same as `ReadWriteGpr`, but used to represent a register that is
+    /// unconditionally allocated to `%rax`.
+    type ReadWriteRax: AsReg;
+
+    /// Same as `ReadGpr`, but used to represent a register that is
+    /// unconditionally allocated to `%rcx`.
+    type ReadRcx: AsReg;
+    /// Same as `ReadWriteGpr`, but used to represent a register that is
+    /// unconditionally allocated to `%rcx`.
+    type ReadWriteRcx: AsReg;
 }
 
 /// Describe how to interact with an external register type.
@@ -149,10 +163,16 @@ pub trait RegisterVisitor<R: Registers> {
     fn read(&mut self, reg: &mut R::ReadGpr);
     /// Visit a read-write register.
     fn read_write(&mut self, reg: &mut R::ReadWriteGpr);
-    /// Visit a read-only fixed register; for safety, this register cannot be
-    /// modified in-place.
-    fn fixed_read(&mut self, reg: &R::ReadGpr);
-    /// Visit a read-write fixed register; for safety, this register cannot be
-    /// modified in-place.
-    fn fixed_read_write(&mut self, reg: &R::ReadWriteGpr);
+    /// Visit a register that must be allocated to `%rax` after allocation. This
+    /// register is a read-only register.
+    fn read_rax(&mut self, reg: &mut R::ReadRax);
+    /// Visit a register that must be allocated to `%rax` after allocation. This
+    /// register is a read-write register.
+    fn read_write_rax(&mut self, reg: &mut R::ReadWriteRax);
+    /// Visit a register that must be allocated to `%rcx` after allocation. This
+    /// register is a read-only register.
+    fn read_rcx(&mut self, reg: &mut R::ReadRcx);
+    /// Visit a register that must be allocated to `%rcx` after allocation. This
+    /// register is a read-write register.
+    fn read_write_rcx(&mut self, reg: &mut R::ReadWriteRcx);
 }

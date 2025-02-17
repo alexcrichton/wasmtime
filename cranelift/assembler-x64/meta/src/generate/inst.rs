@@ -76,13 +76,7 @@ impl dsl::Inst {
                 .iter()
                 .filter_map(|o| o.generate_type().map(|t| format!("{}: {}", o.location, t))),
         );
-        let args = comma_join(
-            self.format
-                .operands
-                .iter()
-                .filter(|o| !matches!(o.location.kind(), dsl::OperandKind::FixedReg(_)))
-                .map(|o| o.location.to_string()),
-        );
+        let args = comma_join(self.format.operands.iter().map(|o| o.location.to_string()));
 
         fmtln!(f, "#[must_use]");
         fmtln!(f, "pub fn new({params}) -> Self {{");
@@ -141,13 +135,12 @@ impl dsl::Inst {
                     Imm(_) => {
                         // Immediates do not need register allocation.
                     }
-                    FixedReg(_) => {
+                    FixedReg(reg) => {
                         let call = o.mutability.generate_regalloc_call();
-                        let ty = o.mutability.generate_type();
-                        let Some(fixed) = o.location.generate_fixed_reg() else {
+                        let Some(fixed) = o.location.generate_fixed_regalloc_name() else {
                             unreachable!()
                         };
-                        fmtln!(f, "visitor.fixed_{call}(&R::{ty}Gpr::new({fixed}));");
+                        fmtln!(f, "visitor.{call}_{fixed}(self.{reg}.as_mut());");
                     }
                     Reg(reg) => {
                         let call = o.mutability.generate_regalloc_call();
@@ -235,7 +228,7 @@ impl dsl::Inst {
             .format
             .operands
             .iter()
-            .filter_map(|o| Some((o.location, o.generate_mut_ty(read_ty, read_write_ty)?)))
+            .map(|o| (o.location, o.generate_mut_ty(read_ty, read_write_ty)))
             .collect::<Vec<_>>();
         let ret_ty = match self.format.operands.first().unwrap().location.kind() {
             Imm(_) => unreachable!(),
@@ -244,8 +237,7 @@ impl dsl::Inst {
         };
         let ret_val = match self.format.operands.first().unwrap().location.kind() {
             Imm(_) => unreachable!(),
-            FixedReg(_) => "todo!()".to_string(),
-            Reg(loc) | RegMem(loc) => format!("{loc}.clone()"),
+            FixedReg(loc) | Reg(loc) | RegMem(loc) => format!("{loc}.clone()"),
         };
         let params = comma_join(
             operands
@@ -279,18 +271,17 @@ impl dsl::Inst {
             .format
             .operands
             .iter()
-            .filter_map(|o| match o.location.kind() {
-                FixedReg(_) => None,
+            .map(|o| match o.location.kind() {
                 Imm(loc) => {
                     let bits = loc.bits();
                     if o.extension.is_sign_extended() {
-                        Some(format!("AssemblerSimm{bits}"))
+                        format!("AssemblerSimm{bits}")
                     } else {
-                        Some(format!("AssemblerImm{bits}"))
+                        format!("AssemblerImm{bits}")
                     }
                 }
-                Reg(_) => Some(format!("Assembler{}Gpr", o.mutability.generate_type())),
-                RegMem(_) => Some(format!("Assembler{}GprMem", o.mutability.generate_type())),
+                FixedReg(_) | Reg(_) => format!("Assembler{}Gpr", o.mutability.generate_type()),
+                RegMem(_) => format!("Assembler{}GprMem", o.mutability.generate_type()),
             })
             .collect::<Vec<_>>()
             .join(" ");

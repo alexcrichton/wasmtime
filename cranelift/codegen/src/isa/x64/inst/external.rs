@@ -13,6 +13,10 @@ pub struct CraneliftRegisters;
 impl asm::Registers for CraneliftRegisters {
     type ReadGpr = Gpr;
     type ReadWriteGpr = PairedGpr;
+    type ReadRax = Gpr;
+    type ReadWriteRax = PairedGpr;
+    type ReadRcx = Gpr;
+    type ReadWriteRcx = PairedGpr;
 }
 
 /// A pair of registers, one for reading and one for writing.
@@ -83,12 +87,24 @@ impl<'a, T: OperandVisitor> asm::RegisterVisitor<CraneliftRegisters> for Regallo
         self.collector.reg_reuse_def(write, 0);
     }
 
-    fn fixed_read(&mut self, _reg: &Gpr) {
-        todo!()
+    fn read_rax(&mut self, reg: &mut Gpr) {
+        self.collector.reg_fixed_use(reg, regs::rax());
     }
 
-    fn fixed_read_write(&mut self, _reg: &PairedGpr) {
-        todo!()
+    fn read_write_rax(&mut self, reg: &mut PairedGpr) {
+        let PairedGpr { read, write } = reg;
+        self.collector.reg_fixed_use(read, regs::rax());
+        self.collector.reg_reuse_def(write, 0);
+    }
+
+    fn read_rcx(&mut self, reg: &mut Gpr) {
+        self.collector.reg_fixed_use(reg, regs::rcx());
+    }
+
+    fn read_write_rcx(&mut self, reg: &mut PairedGpr) {
+        let PairedGpr { read, write } = reg;
+        self.collector.reg_fixed_use(read, regs::rcx());
+        self.collector.reg_reuse_def(write, 0);
     }
 }
 

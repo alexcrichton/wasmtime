@@ -3,9 +3,12 @@ use crate::dsl;
 impl dsl::Operand {
     #[must_use]
     pub fn generate_type(&self) -> Option<String> {
+        use dsl::Location::*;
         use dsl::OperandKind::*;
         match self.location.kind() {
-            FixedReg(_) => None,
+            FixedReg(al | ax | eax | rax) => Some(format!("Gpr<R::{}Rax>", self.mutability.generate_type())),
+            FixedReg(cl) => Some(format!("Gpr<R::{}Rcx>", self.mutability.generate_type())),
+            FixedReg(other) => panic!("don't know how to generate type for {other:?}"),
             Imm(loc) => {
                 let bits = loc.bits();
                 if self.extension.is_sign_extended() {
@@ -20,7 +23,7 @@ impl dsl::Operand {
     }
 
     #[must_use]
-    pub fn generate_mut_ty(&self, read_ty: &str, read_write_ty: &str) -> Option<String> {
+    pub fn generate_mut_ty(&self, read_ty: &str, read_write_ty: &str) -> String {
         use dsl::Mutability::*;
         use dsl::OperandKind::*;
         let pick_ty = match self.mutability {
@@ -28,17 +31,16 @@ impl dsl::Operand {
             ReadWrite => read_write_ty,
         };
         match self.location.kind() {
-            FixedReg(_) => None,
             Imm(loc) => {
                 let bits = loc.bits();
                 if self.extension.is_sign_extended() {
-                    Some(format!("Simm{bits}"))
+                    format!("Simm{bits}")
                 } else {
-                    Some(format!("Imm{bits}"))
+                    format!("Imm{bits}")
                 }
             }
-            Reg(_) => Some(format!("Gpr<{pick_ty}>")),
-            RegMem(_) => Some(format!("GprMem<{pick_ty}, {read_ty}>")),
+            FixedReg(_) | Reg(_) => format!("Gpr<{pick_ty}>"),
+            RegMem(_) => format!("GprMem<{pick_ty}, {read_ty}>"),
         }
     }
 }
@@ -67,11 +69,6 @@ impl dsl::Location {
     pub fn generate_to_string(&self, extension: dsl::Extension) -> String {
         use dsl::Location::*;
         match self {
-            al => "\"%al\"".into(),
-            ax => "\"%ax\"".into(),
-            eax => "\"%eax\"".into(),
-            rax => "\"%rax\"".into(),
-            cl => "\"%cl\"".into(),
             imm8 | imm16 | imm32 => {
                 if extension.is_sign_extended() {
                     let variant = extension.generate_variant();
@@ -80,10 +77,12 @@ impl dsl::Location {
                     format!("self.{self}.to_string()")
                 }
             }
-            r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => match self.generate_size() {
-                Some(size) => format!("self.{self}.to_string({size})"),
-                None => unreachable!(),
-            },
+            al | ax | eax | rax | cl | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => {
+                match self.generate_size() {
+                    Some(size) => format!("self.{self}.to_string({size})"),
+                    None => unreachable!(),
+                }
+            }
         }
     }
 
@@ -92,17 +91,30 @@ impl dsl::Location {
     pub fn generate_size(&self) -> Option<&str> {
         use dsl::Location::*;
         match self {
-            al | ax | eax | rax | cl | imm8 | imm16 | imm32 => None,
-            r8 | rm8 => Some("Size::Byte"),
-            r16 | rm16 => Some("Size::Word"),
-            r32 | rm32 => Some("Size::Doubleword"),
-            r64 | rm64 => Some("Size::Quadword"),
+            imm8 | imm16 | imm32 => None,
+            al | cl | r8 | rm8 => Some("Size::Byte"),
+            ax | r16 | rm16 => Some("Size::Word"),
+            eax | r32 | rm32 => Some("Size::Doubleword"),
+            rax | r64 | rm64 => Some("Size::Quadword"),
         }
     }
 
-    /// `Gpr(regs::...)`
+    /// Generates the name of the regalloc-method to use during `visit`, only
+    /// used for fixed-registers.
     #[must_use]
-    pub fn generate_fixed_reg(&self) -> Option<&str> {
+    pub fn generate_fixed_regalloc_name(&self) -> Option<&str> {
+        use dsl::Location::*;
+        match self {
+            al | ax | eax | rax => Some("rax"),
+            cl => Some("rcx"),
+            imm8 | imm16 | imm32 | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => None,
+        }
+    }
+
+    /// Generates the encoding of a fixed register, or `None` if this isn't a
+    /// fixed register.
+    #[must_use]
+    pub fn generate_fixed_reg_enc(&self) -> Option<&str> {
         use dsl::Location::*;
         match self {
             al | ax | eax | rax => Some("reg::enc::RAX"),

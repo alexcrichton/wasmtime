@@ -4,6 +4,7 @@
 //! throughout this crate to avoid depending on the `arbitrary` crate
 //! unconditionally (use the `fuzz` feature instead).
 
+use crate::reg::{Rax, Rcx};
 use crate::{AmodeOffset, AmodeOffsetPlusKnownOffset, AsReg, Gpr, Inst, NonRspGpr, Registers};
 use arbitrary::{Arbitrary, Result, Unstructured};
 use capstone::{arch::x86, arch::BuildsCapstone, arch::BuildsCapstoneSyntax, Capstone};
@@ -165,6 +166,10 @@ pub struct FuzzRegs;
 impl Registers for FuzzRegs {
     type ReadGpr = FuzzReg;
     type ReadWriteGpr = FuzzReg;
+    type ReadRax = Rax;
+    type ReadWriteRax = Rax;
+    type ReadRcx = Rcx;
+    type ReadWriteRcx = Rcx;
 }
 
 /// A simple `u8` register type for fuzzing only.
@@ -204,16 +209,35 @@ impl<R: AsReg> Arbitrary<'_> for NonRspGpr<R> {
         Ok(Self::new(R::new(*gpr)))
     }
 }
-impl<'a, R: AsReg> Arbitrary<'a> for Gpr<R> {
+impl<'a, R: Arbitrary<'a> + AsReg> Arbitrary<'a> for Gpr<R> {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        Ok(Self(R::new(u.int_in_range(0..=15)?)))
+        Ok(Self(u.arbitrary()?))
+    }
+}
+
+impl Arbitrary<'_> for Rax {
+    fn arbitrary(_: &mut Unstructured<'_>) -> Result<Self> {
+        Ok(Rax)
+    }
+}
+
+impl Arbitrary<'_> for Rcx {
+    fn arbitrary(_: &mut Unstructured<'_>) -> Result<Self> {
+        Ok(Rcx)
     }
 }
 
 /// Helper trait that's used to be the same as `Registers` except with an extra
 /// `for<'a> Arbitrary<'a>` bound on all of the associated types.
 pub trait RegistersArbitrary:
-    Registers<ReadGpr: for<'a> Arbitrary<'a>, ReadWriteGpr: for<'a> Arbitrary<'a>>
+    Registers<
+    ReadGpr: for<'a> Arbitrary<'a>,
+    ReadWriteGpr: for<'a> Arbitrary<'a>,
+    ReadRax: for<'a> Arbitrary<'a>,
+    ReadWriteRax: for<'a> Arbitrary<'a>,
+    ReadRcx: for<'a> Arbitrary<'a>,
+    ReadWriteRcx: for<'a> Arbitrary<'a>,
+>
 {
 }
 
@@ -222,6 +246,10 @@ where
     R: Registers,
     R::ReadGpr: for<'a> Arbitrary<'a>,
     R::ReadWriteGpr: for<'a> Arbitrary<'a>,
+    R::ReadRax: for<'a> Arbitrary<'a>,
+    R::ReadWriteRax: for<'a> Arbitrary<'a>,
+    R::ReadRcx: for<'a> Arbitrary<'a>,
+    R::ReadWriteRcx: for<'a> Arbitrary<'a>,
 {
 }
 
