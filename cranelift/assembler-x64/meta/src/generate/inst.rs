@@ -228,35 +228,79 @@ impl dsl::Inst {
     /// # Panics
     ///
     /// This function panics if the instruction has no operands.
-    pub fn generate_isle_macro(&self, f: &mut Formatter, read_ty: &str, read_write_ty: &str) {
+    pub fn generate_isle_macro(&self, f: &mut Formatter, _read_ty: &str, _read_write_ty: &str) {
+        use dsl::Mutability::*;
         use dsl::OperandKind::*;
         let struct_name = self.name();
         let operands = self
             .format
             .operands
             .iter()
-            .filter_map(|o| Some((o.location, o.generate_mut_ty(read_ty, read_write_ty)?)))
+            .filter_map(|o| {
+                // Some((o.location, o.generate_mut_ty(read_ty, read_write_ty)?))
+                // // ..
+                let ty = match o.location.kind() {
+                    FixedReg(_) => return None,
+                    Imm(loc) => {
+                        let bits = loc.bits();
+                        if o.extension.is_sign_extended() {
+                            format!("&cranelift_assembler_x64::Simm{bits}")
+                        } else {
+                            format!("&cranelift_assembler_x64::Imm{bits}")
+                        }
+                    }
+                    Reg(_) => "Gpr".to_string(),
+                    RegMem(_) => "&GprMem".to_string(),
+                };
+
+                Some((o, ty))
+            })
             .collect::<Vec<_>>();
-        let ret_ty = match self.format.operands.first().unwrap().location.kind() {
+        let ret_o = self.format.operands.first().unwrap();
+        let ret_ty = match ret_o.location.kind() {
             Imm(_) => unreachable!(),
-            Reg(_) | FixedReg(_) => format!("cranelift_assembler_x64::Gpr<{read_write_ty}>"),
-            RegMem(_) => format!("cranelift_assembler_x64::GprMem<{read_write_ty}, {read_ty}>"),
+            Reg(_) | FixedReg(_) => "Gpr",
+            RegMem(_) => "Gpr",
         };
-        let ret_val = match self.format.operands.first().unwrap().location.kind() {
+
+        let ret_val = match ret_o.location.kind() {
             Imm(_) => unreachable!(),
             FixedReg(_) => "todo!()".to_string(),
-            Reg(loc) | RegMem(loc) => format!("{loc}.clone()"),
+            Reg(loc) => format!("self.convert_assembler_read_write_gpr_to_gpr(&{loc})"),
+            RegMem(loc) => format!("self.convert_assembler_read_write_gpr_mem_to_gpr(&{loc})"),
         };
-        let params = comma_join(
+        let params = comma_join(operands.iter().map(|(o, ty)| format!("{}: {ty}", o.location)));
+        let args = comma_join(
             operands
                 .iter()
-                .map(|(l, ty)| format!("{l}: &cranelift_assembler_x64::{ty}")),
+                .map(|(o, _)| format!("{}.clone()", o.location.to_string())),
         );
-        let args = comma_join(operands.iter().map(|(l, _)| format!("{l}.clone()")));
 
         // TODO: parameterize CraneliftRegisters?
         fmtln!(f, "fn x64_{struct_name}(&mut self, {params}) -> {ret_ty} {{",);
         f.indent(|f| {
+            for (o, _) in operands.iter() {
+                let l = o.location;
+                match o.location.kind() {
+                    Reg(_) => match o.mutability {
+                        Read => fmtln!(f, "let {l} = cranelift_assembler_x64::Gpr::new({l});"),
+                        // TODO: clean this up
+                        ReadWrite => {
+                            fmtln!(f, "let {l} = self.convert_gpr_to_assembler_read_write_gpr({l});")
+                        }
+                    },
+                    RegMem(_) => match o.mutability {
+                        // TODO: clean this up
+                        Read => {
+                            fmtln!(f, "let {l} = self.convert_gpr_mem_to_assembler_read_gpr_mem({l});")
+                        }
+                        ReadWrite => {
+                            fmtln!(f, "let {l} = self.convert_gpr_mem_to_assembler_read_write_gpr_mem({l});")
+                        }
+                    },
+                    FixedReg(_) | Imm(_) => fmtln!(f, "let {l} = {l}.clone();"),
+                }
+            }
             fmtln!(f, "let inst = cranelift_assembler_x64::inst::{struct_name}::new({args}).into();");
             fmtln!(f, "self.lower_ctx.emit(MInst::External {{ inst }});");
             fmtln!(f, "{ret_val}");
@@ -289,15 +333,15 @@ impl dsl::Inst {
                         Some(format!("AssemblerImm{bits}"))
                     }
                 }
-                Reg(_) => Some(format!("Assembler{}Gpr", o.mutability.generate_type())),
-                RegMem(_) => Some(format!("Assembler{}GprMem", o.mutability.generate_type())),
+                Reg(_) => Some("Gpr".to_string()),
+                RegMem(_) => Some("GprMem".to_string()),
             })
             .collect::<Vec<_>>()
             .join(" ");
         let ret = match self.format.operands.first().unwrap().location.kind() {
             Imm(_) => unreachable!(),
-            FixedReg(_) | Reg(_) => "AssemblerReadWriteGpr",
-            RegMem(_) => "AssemblerReadWriteGprMem",
+            FixedReg(_) | Reg(_) => "Gpr",
+            RegMem(_) => "Gpr",
         };
 
         f.line(format!("(decl {rule_name} ({params}) {ret})"), None);

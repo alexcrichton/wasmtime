@@ -41,7 +41,6 @@ type BoxSyntheticAmode = Box<SyntheticAmode>;
 
 /// When interacting with the external assembler (see `external.rs`), we
 /// need to fix the types we'll use.
-type AssemblerReadGpr = asm::Gpr<Gpr>;
 type AssemblerReadWriteGpr = asm::Gpr<PairedGpr>;
 type AssemblerReadGprMem = asm::GprMem<Gpr, Gpr>;
 type AssemblerReadWriteGprMem = asm::GprMem<PairedGpr, Gpr>;
@@ -1016,52 +1015,48 @@ impl Context for IsleContext<'_, '_, MInst, X64Backend> {
         }
     }
 
-    fn is_gpr(&mut self, src: &GprMemImm) -> Option<AssemblerReadGprMem> {
+    fn is_gpr(&mut self, src: &GprMemImm) -> Option<Gpr> {
         match src.clone().to_reg_mem_imm() {
-            RegMemImm::Reg { reg } => {
-                let read = Gpr::new(reg).unwrap();
-                Some(AssemblerReadGprMem::Gpr(read))
-            }
+            RegMemImm::Reg { reg } => Gpr::new(reg),
             _ => None,
         }
     }
 
-    fn is_mem(&mut self, src: &GprMemImm) -> Option<AssemblerReadGprMem> {
+    fn is_mem(&mut self, src: &GprMemImm) -> Option<GprMem> {
         match src.clone().to_reg_mem_imm() {
-            RegMemImm::Mem { addr } => {
-                let addr = addr.into();
-                Some(AssemblerReadGprMem::Mem(addr))
-            }
+            RegMemImm::Mem { addr } => GprMem::new(RegMem::Mem { addr }),
             _ => None,
         }
     }
 
-    fn is_gpr_mem(&mut self, src: &GprMemImm) -> Option<AssemblerReadGprMem> {
+    fn is_gpr_mem(&mut self, src: &GprMemImm) -> Option<GprMem> {
         match src.clone().to_reg_mem_imm() {
-            RegMemImm::Reg { reg } => {
-                let read = Gpr::new(reg).unwrap();
-                Some(AssemblerReadGprMem::Gpr(read))
-            }
-            RegMemImm::Mem { addr } => {
-                let addr = addr.into();
-                Some(AssemblerReadGprMem::Mem(addr))
-            }
+            RegMemImm::Reg { reg } => GprMem::new(RegMem::Reg { reg }),
+            RegMemImm::Mem { addr } => GprMem::new(RegMem::Mem { addr }),
             _ => None,
         }
     }
 
-    fn convert_gpr_to_assembler_read_gpr(&mut self, read: Gpr) -> AssemblerReadGpr {
-        AssemblerReadGpr::new(read)
+    fn u8_to_assembler_imm8(&mut self, val: u8) -> AssemblerImm8 {
+        AssemblerImm8::new(val)
+    }
+}
+
+impl IsleContext<'_, '_, MInst, X64Backend> {
+    fn load_xmm_unaligned(&mut self, addr: SyntheticAmode) -> Xmm {
+        let tmp = self.lower_ctx.alloc_tmp(types::F32X4).only_reg().unwrap();
+        self.lower_ctx.emit(MInst::XmmUnaryRmRUnaligned {
+            op: SseOpcode::Movdqu,
+            src: XmmMem::unwrap_new(RegMem::mem(addr)),
+            dst: Writable::from_reg(Xmm::unwrap_new(tmp.to_reg())),
+        });
+        Xmm::unwrap_new(tmp.to_reg())
     }
 
     fn convert_gpr_to_assembler_read_write_gpr(&mut self, read: Gpr) -> AssemblerReadWriteGpr {
         let write = self.lower_ctx.alloc_tmp(types::I64).only_reg().unwrap();
         let write = WritableGpr::from_writable_reg(write).unwrap();
         AssemblerReadWriteGpr::new(PairedGpr { read, write })
-    }
-
-    fn convert_gpr_to_assembler_read_gpr_mem(&mut self, read: Gpr) -> AssemblerReadGprMem {
-        asm::GprMem::Gpr(read)
     }
 
     fn convert_gpr_mem_to_assembler_read_gpr_mem(&mut self, read: &GprMem) -> AssemblerReadGprMem {
@@ -1089,15 +1084,6 @@ impl Context for IsleContext<'_, '_, MInst, X64Backend> {
         gpr.as_ref().write.to_reg()
     }
 
-    fn convert_gpr_to_assembler_read_write_gpr_mem(
-        &mut self,
-        read: Gpr,
-    ) -> AssemblerReadWriteGprMem {
-        let write = self.lower_ctx.alloc_tmp(types::I64).only_reg().unwrap();
-        let write = WritableGpr::from_writable_reg(write).unwrap();
-        AssemblerReadWriteGprMem::Gpr(PairedGpr { read, write })
-    }
-
     fn convert_assembler_read_write_gpr_mem_to_gpr(
         &mut self,
         reg_mem: &AssemblerReadWriteGprMem,
@@ -1108,22 +1094,6 @@ impl Context for IsleContext<'_, '_, MInst, X64Backend> {
                 unimplemented!("cannot convert a memory address to a GPR; check the ISLE rules")
             }
         }
-    }
-
-    fn u8_to_assembler_imm8(&mut self, val: u8) -> AssemblerImm8 {
-        AssemblerImm8::new(val)
-    }
-}
-
-impl IsleContext<'_, '_, MInst, X64Backend> {
-    fn load_xmm_unaligned(&mut self, addr: SyntheticAmode) -> Xmm {
-        let tmp = self.lower_ctx.alloc_tmp(types::F32X4).only_reg().unwrap();
-        self.lower_ctx.emit(MInst::XmmUnaryRmRUnaligned {
-            op: SseOpcode::Movdqu,
-            src: XmmMem::unwrap_new(RegMem::mem(addr)),
-            dst: Writable::from_reg(Xmm::unwrap_new(tmp.to_reg())),
-        });
-        Xmm::unwrap_new(tmp.to_reg())
     }
 }
 
