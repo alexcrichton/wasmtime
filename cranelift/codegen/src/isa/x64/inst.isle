@@ -5,6 +5,39 @@
 ;; Don't build `MInst` variants directly, in general. Instead, use the
 ;; instruction-emitting helpers defined further down.
 
+;; ;; auto-generated
+;; (decl x64_addb_mi (Gpr Imm8) Gpr)
+;; (rule (x64_addb_mi gpr imm)
+;;   (let (
+;;       ((Thing.Thing inst gpr_ret) Thing (raw_x64_addb_mi gpr imm))
+;;       (_ Unit (emit inst))
+;;     )
+;;     gpr_ret))
+;;
+;; (decl x64_addb_mi_flags (Gpr Imm8) ProducesFlags)
+;; ;; ...
+;;
+;; (decl x64_adcb_mi (Gpr Imm8) ConsumesFlags)
+;; ;; ...
+;; (decl x64_adcb_mi_flags (Gpr Imm8) ConsumesAndProducesFlags)
+;; ;; ...
+;;
+;; (decl x64_addb_mi_mem (SyntheticAmode Imm8) SideEffectNoResult)
+;; (rule (x64_addb_mi_mem addr imm)
+;;   (SideEffectNoResult (raw_x64_addb_mi_mem addr imm)))
+;;
+;;         fn raw_x64_addb_mi(
+;;             &mut self,
+;;             r8: &Gpr,
+;;             imm8: &cranelift_assembler_x64::Imm8,
+;;         ) -> (MInst, Gpr);
+;;
+;;         fn raw_x64_addb_mi_mem(
+;;             &mut self,
+;;             rm8: &SyntheticAmode,
+;;             imm8: &cranelift_assembler_x64::Imm8,
+;;         ) -> MInst;
+
 (type MInst nodebug
       (enum
        ;; Nops of various sizes, including zero.
