@@ -4,10 +4,6 @@ on:
     branches:
     - '*'
 
-defaults:
-  run:
-    shell: bash
-
 jobs:
   micro_checks:
     name: Check ${{matrix.name}}
