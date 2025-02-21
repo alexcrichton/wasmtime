@@ -18,4 +18,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - run: rustup update stable && rustup default stable
+    - uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3
+      with:
+        prefix-key: v0-rust
+        cache-targets: true
+        cache-all-crates: false
+        save-if: true
+        cache-provider: github
+        cache-bin: true
+        lookup-only: false
     - run: cargo run
