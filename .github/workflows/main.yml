@@ -1,6 +1,8 @@
 name: something-else
 on:
   push:
+    branches:
+    - '*'
 
 defaults:
   run:
