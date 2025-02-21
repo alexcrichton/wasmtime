@@ -8,7 +8,7 @@ jobs:
   micro_checks:
     name: Check thing
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
