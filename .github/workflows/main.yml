@@ -18,5 +18,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - run: rustup update stable && rustup default stable
+    - uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6
     - uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3
-    - run: cargo run
+    - run: just build
