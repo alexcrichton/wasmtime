@@ -17,4 +17,5 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
+    - run: rustup update stable && rustup default stable
     - run: cargo run
