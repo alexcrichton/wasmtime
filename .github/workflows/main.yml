@@ -1,0 +1,21 @@
+name: something-else
+on:
+  push:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  micro_checks:
+    name: Check ${{matrix.name}}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+          - os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+    - run: cargo run
