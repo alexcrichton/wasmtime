@@ -13,6 +13,7 @@ jobs:
         include:
           - os: windows-latest
           - os: ubuntu-latest
+          - os: macos-latest
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
