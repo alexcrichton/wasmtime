@@ -3,5 +3,5 @@ name = "wat"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[build-dependencies]
 cranelift-assembler-x64 = "0.117.0"
