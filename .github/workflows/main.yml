@@ -6,7 +6,7 @@ on:
 
 jobs:
   micro_checks:
-    name: Check ${{matrix.name}}
+    name: Check thing
     strategy:
       fail-fast: true
       matrix:
