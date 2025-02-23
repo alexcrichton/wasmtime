@@ -50,6 +50,16 @@ pub fn r(location: Location) -> Operand {
     }
 }
 
+/// An abbreviated constructor for a "write" operand.
+#[must_use]
+pub fn w(location: Location) -> Operand {
+    Operand {
+        location,
+        mutability: Mutability::Write,
+        extension: Extension::None,
+    }
+}
+
 /// An abbreviated constructor for a "read" operand that is sign-extended to 64
 /// bits (quadword).
 ///
@@ -130,8 +140,11 @@ impl Format {
     }
 
     /// Collect into operand kinds.
-    pub fn operands_by_kind(&self) -> Vec<OperandKind> {
-        self.locations().map(Location::kind).collect()
+    pub fn non_flags_operands_by_kind(&self) -> Vec<OperandKind> {
+        self.locations()
+            .filter(|l| **l != Location::eflags)
+            .map(Location::kind)
+            .collect()
     }
 
     /// Returns the `IsleConstructorRaw` variant that this format will be using.
@@ -143,12 +156,16 @@ impl Format {
             .operands
             .iter()
             .filter(|o| o.mutability.is_write())
+            // flags are handled in custom ISLE constructors, not in the raw
+            // constructor.
+            .filter(|o| o.location != Location::eflags)
             .collect::<Vec<_>>();
         match &write_operands[..] {
             // No outputs? Just return the instruction.
             [] => IsleConstructorRaw::MInst,
             [one] => match one.mutability {
                 Mutability::Read => unreachable!(),
+                Mutability::Write => IsleConstructorRaw::MInstAndGpr,
                 Mutability::ReadWrite => match one.location.kind() {
                     OperandKind::Imm(_) => unreachable!(),
                     // One read/write register output? Output the instruction
@@ -170,18 +187,53 @@ impl Format {
     /// Note that one instruction might need multiple constructors, such as one
     /// for operating on memory and one for operating on registers.
     pub fn isle_constructors(&self) -> Vec<IsleConstructor> {
-        // TODO: in the future this should also check and generate constructors
-        // that return `ProducesFlags` or `ConsumesFlags` or similar.
-        match self.isle_constructor_raw() {
-            IsleConstructorRaw::MInst => vec![IsleConstructor::RetSideEffectNoResult],
-            IsleConstructorRaw::MInstAndGpr => vec![IsleConstructor::RetGpr],
+        let mut ctors = Vec::new();
+        let eflags_mut = self
+            .operands
+            .iter()
+            .find(|o| o.location == Location::eflags)
+            .map(|o| o.mutability);
+
+        match (self.isle_constructor_raw(), eflags_mut) {
+            (IsleConstructorRaw::MInst, None) => ctors.push(IsleConstructor::RetSideEffectNoResult),
+            (IsleConstructorRaw::MInstAndGpr, None) => ctors.push(IsleConstructor::RetGpr),
+
             // If the writable output is `GprMem` then one constructor will
             // operate on memory, hence returning a `SideEffectNoResult`. The
             // other constructor will operate on gprs, hence returning a `Gpr`.
-            IsleConstructorRaw::MInstAndGprMem => {
-                vec![IsleConstructor::RetSideEffectNoResult, IsleConstructor::RetGpr]
+            (IsleConstructorRaw::MInstAndGprMem, None) => {
+                ctors.push(IsleConstructor::RetGpr);
+                ctors.push(IsleConstructor::RetSideEffectNoResult);
             }
+
+            (IsleConstructorRaw::MInstAndGpr, Some(Mutability::ReadWrite)) => {
+                ctors.push(IsleConstructor::RetConsumesAndProducesFlagsWithGpr);
+                ctors.push(IsleConstructor::RetConsumesFlagsWithGpr);
+            }
+
+            (IsleConstructorRaw::MInstAndGpr, Some(Mutability::Write)) => {
+                ctors.push(IsleConstructor::RetGpr);
+                ctors.push(IsleConstructor::RetProducesFlagsWithGpr);
+            }
+
+            (IsleConstructorRaw::MInstAndGprMem, Some(Mutability::ReadWrite)) => {
+                ctors.push(IsleConstructor::RetConsumesAndProducesFlags);
+                ctors.push(IsleConstructor::RetConsumesFlags);
+                ctors.push(IsleConstructor::RetConsumesAndProducesFlagsWithGpr);
+                ctors.push(IsleConstructor::RetConsumesFlagsWithGpr);
+            }
+
+            (IsleConstructorRaw::MInstAndGprMem, Some(Mutability::Write)) => {
+                ctors.push(IsleConstructor::RetGpr);
+                ctors.push(IsleConstructor::RetSideEffectNoResult);
+                ctors.push(IsleConstructor::RetProducesFlagsWithGpr);
+                ctors.push(IsleConstructor::RetProducesFlags);
+            }
+
+            other => panic!("don't know how to make ctors for {other:?}"),
         }
+
+        ctors
     }
 }
 
@@ -246,8 +298,14 @@ impl Operand {
             // other constructor it's operating on registers so the argument is
             // a `Gpr`.
             OperandKind::RegMem(_) if self.mutability.is_write() => match ctor {
-                IsleConstructor::RetSideEffectNoResult => "Amode".to_string(),
-                IsleConstructor::RetGpr => "Gpr".to_string(),
+                IsleConstructor::RetSideEffectNoResult
+                | IsleConstructor::RetConsumesFlags
+                | IsleConstructor::RetConsumesAndProducesFlags
+                | IsleConstructor::RetProducesFlags => "Amode".to_string(),
+                IsleConstructor::RetGpr
+                | IsleConstructor::RetConsumesAndProducesFlagsWithGpr
+                | IsleConstructor::RetConsumesFlagsWithGpr
+                | IsleConstructor::RetProducesFlagsWithGpr => "Gpr".to_string(),
             },
 
             // everything else is the same as the "raw" variant
@@ -279,10 +337,12 @@ impl Operand {
             OperandKind::Reg(_) => Some(match self.mutability {
                 Mutability::Read => "cranelift_assembler_x64::Gpr::new",
                 Mutability::ReadWrite => "self.convert_gpr_to_assembler_read_write_gpr",
+                Mutability::Write => unreachable!(),
             }),
             OperandKind::RegMem(_) => Some(match self.mutability {
                 Mutability::Read => "self.convert_gpr_mem_to_assembler_read_gpr_mem",
                 Mutability::ReadWrite => "self.convert_gpr_mem_to_assembler_read_write_gpr_mem",
+                Mutability::Write => unreachable!(),
             }),
             OperandKind::FixedReg(_) | OperandKind::Imm(_) => None,
         }
@@ -314,7 +374,7 @@ impl From<Location> for Operand {
 }
 
 /// An operand location, as expressed in Intel's _Instruction Set Reference_.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types, reason = "makes DSL definitions easier to read")]
 pub enum Location {
     al,
@@ -337,6 +397,8 @@ pub enum Location {
     rm16,
     rm32,
     rm64,
+
+    eflags,
 }
 
 impl Location {
@@ -345,7 +407,7 @@ impl Location {
     pub fn bits(&self) -> u8 {
         use Location::*;
         match self {
-            al | cl | imm8 | r8 | rm8 => 8,
+            al | cl | imm8 | r8 | rm8 | eflags => 8,
             ax | imm16 | r16 | rm16 => 16,
             eax | imm32 | r32 | rm32 => 32,
             rax | r64 | rm64 => 64,
@@ -363,7 +425,7 @@ impl Location {
     pub fn uses_memory(&self) -> bool {
         use Location::*;
         match self {
-            al | cl | ax | eax | rax | imm8 | imm16 | imm32 | r8 | r16 | r32 | r64 => false,
+            al | cl | ax | eax | rax | imm8 | imm16 | imm32 | r8 | r16 | r32 | r64 | eflags => false,
             rm8 | rm16 | rm32 | rm64 => true,
         }
     }
@@ -374,7 +436,7 @@ impl Location {
     pub fn uses_variable_register(&self) -> bool {
         use Location::*;
         match self {
-            al | ax | eax | rax | cl | imm8 | imm16 | imm32 => false,
+            al | ax | eax | rax | cl | imm8 | imm16 | imm32 | eflags => false,
             r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => true,
         }
     }
@@ -384,7 +446,7 @@ impl Location {
     pub fn kind(&self) -> OperandKind {
         use Location::*;
         match self {
-            al | ax | eax | rax | cl => OperandKind::FixedReg(*self),
+            al | ax | eax | rax | cl | eflags => OperandKind::FixedReg(*self),
             imm8 | imm16 | imm32 => OperandKind::Imm(*self),
             r8 | r16 | r32 | r64 => OperandKind::Reg(*self),
             rm8 | rm16 | rm32 | rm64 => OperandKind::RegMem(*self),
@@ -402,6 +464,8 @@ impl core::fmt::Display for Location {
             rax => write!(f, "rax"),
 
             cl => write!(f, "cl"),
+
+            eflags => write!(f, "eflags"),
 
             imm8 => write!(f, "imm8"),
             imm16 => write!(f, "imm16"),
@@ -445,6 +509,7 @@ pub enum OperandKind {
 pub enum Mutability {
     Read,
     ReadWrite,
+    Write,
 }
 
 impl Mutability {
@@ -454,6 +519,7 @@ impl Mutability {
     pub fn is_read(&self) -> bool {
         match self {
             Mutability::Read | Mutability::ReadWrite => true,
+            Mutability::Write => false,
         }
     }
 
@@ -463,7 +529,7 @@ impl Mutability {
     pub fn is_write(&self) -> bool {
         match self {
             Mutability::Read => false,
-            Mutability::ReadWrite => true,
+            Mutability::ReadWrite | Mutability::Write => true,
         }
     }
 }
@@ -478,6 +544,7 @@ impl core::fmt::Display for Mutability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Read => write!(f, "r"),
+            Self::Write => write!(f, "w"),
             Self::ReadWrite => write!(f, "rw"),
         }
     }
@@ -619,6 +686,24 @@ pub enum IsleConstructor {
     /// This constructor produces a `Gpr` value, meaning that it will write the
     /// result to a `Gpr`.
     RetGpr,
+
+    /// ..
+    RetConsumesFlags,
+
+    /// ..
+    RetConsumesFlagsWithGpr,
+
+    /// ..
+    RetConsumesAndProducesFlags,
+
+    /// ..
+    RetConsumesAndProducesFlagsWithGpr,
+
+    /// ..
+    RetProducesFlags,
+
+    /// ..
+    RetProducesFlagsWithGpr,
 }
 
 impl IsleConstructor {
@@ -627,6 +712,10 @@ impl IsleConstructor {
         match self {
             IsleConstructor::RetSideEffectNoResult => "SideEffectNoResult",
             IsleConstructor::RetGpr => "Gpr",
+            IsleConstructor::RetConsumesFlagsWithGpr | IsleConstructor::RetConsumesFlags => "ConsumesFlags",
+            IsleConstructor::RetConsumesAndProducesFlags
+            | IsleConstructor::RetConsumesAndProducesFlagsWithGpr => "ConsumesAndProducesFlags",
+            IsleConstructor::RetProducesFlags | IsleConstructor::RetProducesFlagsWithGpr => "ProducesFlags",
         }
     }
 }

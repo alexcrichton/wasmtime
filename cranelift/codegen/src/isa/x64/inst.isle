@@ -2772,14 +2772,19 @@
 ;; Helper for creating `add` instructions whose flags are also used.
 (decl x64_add_with_flags_paired (Type Gpr GprMemImm) ProducesFlags)
 (rule (x64_add_with_flags_paired ty src1 src2)
-      (let ((dst WritableGpr (temp_writable_gpr)))
-        (ProducesFlags.ProducesFlagsReturnsResultWithConsumer
-         (MInst.AluRmiR (operand_size_of_type_32_64 ty)
-                        (AluRmiROpcode.Add)
-                        src1
-                        src2
-                        dst)
-         dst)))
+  (produces_flags_result_with_consumer (x64_add_with_flags ty src1 src2)))
+
+(decl x64_add_with_flags (Type Gpr GprMemImm) ProducesFlags)
+(rule 3 (x64_add_with_flags $I32 src1 (is_simm8 src2)) (x64_addl_mi_sxb_flags src1 src2))
+(rule 3 (x64_add_with_flags $I64 src1 (is_simm8 src2)) (x64_addq_mi_sxb_flags src1 src2))
+(rule 2 (x64_add_with_flags $I8 src1 (is_imm8 src2)) (x64_addb_mi_flags src1 src2))
+(rule 2 (x64_add_with_flags $I16 src1 (is_imm16 src2)) (x64_addw_mi_flags src1 src2))
+(rule 2 (x64_add_with_flags $I32 src1 (is_imm32 src2)) (x64_addl_mi_flags src1 src2))
+(rule 2 (x64_add_with_flags $I64 src1 (is_simm32 src2)) (x64_addq_mi_sxl_flags src1 src2))
+(rule 1 (x64_add_with_flags $I8 src1 (is_gpr_mem src2)) (x64_addb_rm_flags src1 src2))
+(rule 1 (x64_add_with_flags $I16 src1 (is_gpr_mem src2)) (x64_addw_rm_flags src1 src2))
+(rule 1 (x64_add_with_flags $I32 src1 (is_gpr_mem src2)) (x64_addl_rm_flags src1 src2))
+(rule 1 (x64_add_with_flags $I64 src1 (is_gpr_mem src2)) (x64_addq_rm_flags src1 src2))
 
 (decl x64_alurmi_with_flags_paired (AluRmiROpcode Type Gpr GprMemImm) ProducesFlags)
 (rule (x64_alurmi_with_flags_paired opc (fits_in_64 ty) src1 src2)
@@ -2816,14 +2821,19 @@
 ;; Helper for creating `adc` instructions.
 (decl x64_adc_paired (Type Gpr GprMemImm) ConsumesFlags)
 (rule (x64_adc_paired ty src1 src2)
-      (let ((dst WritableGpr (temp_writable_gpr)))
-        (ConsumesFlags.ConsumesFlagsReturnsResultWithProducer
-         (MInst.AluRmiR (operand_size_of_type_32_64 ty)
-                        (AluRmiROpcode.Adc)
-                        src1
-                        src2
-                        dst)
-         dst)))
+  (consumes_flags_result_with_producer (x64_adc ty src1 src2)))
+
+(decl x64_adc (Type Gpr GprMemImm) ConsumesFlags)
+(rule 3 (x64_adc $I32 src1 (is_simm8 src2)) (x64_adcl_mi_sxb src1 src2))
+(rule 3 (x64_adc $I64 src1 (is_simm8 src2)) (x64_adcq_mi_sxb src1 src2))
+(rule 2 (x64_adc $I8 src1 (is_imm8 src2)) (x64_adcb_mi src1 src2))
+(rule 2 (x64_adc $I16 src1 (is_imm16 src2)) (x64_adcw_mi src1 src2))
+(rule 2 (x64_adc $I32 src1 (is_imm32 src2)) (x64_adcl_mi src1 src2))
+(rule 2 (x64_adc $I64 src1 (is_simm32 src2)) (x64_adcq_mi_sxl src1 src2))
+(rule 1 (x64_adc $I8 src1 (is_gpr_mem src2)) (x64_adcb_rm src1 src2))
+(rule 1 (x64_adc $I16 src1 (is_gpr_mem src2)) (x64_adcw_rm src1 src2))
+(rule 1 (x64_adc $I32 src1 (is_gpr_mem src2)) (x64_adcl_rm src1 src2))
+(rule 1 (x64_adc $I64 src1 (is_gpr_mem src2)) (x64_adcq_rm src1 src2))
 
 
 
@@ -2968,6 +2978,42 @@
 (decl u8_to_assembler_imm8 (u8) AssemblerImm8)
 (extern constructor u8_to_assembler_imm8 u8_to_assembler_imm8)
 (convert u8 AssemblerImm8 u8_to_assembler_imm8)
+
+(decl minst_and_gpr_to_consumes_flags (MInstAndGpr) ConsumesFlags)
+(rule (minst_and_gpr_to_consumes_flags (MInstAndGpr.Both inst gpr))
+ (ConsumesFlags.ConsumesFlagsReturnsReg inst gpr))
+
+(decl minst_and_gpr_to_produces_flags (MInstAndGpr) ProducesFlags)
+(rule (minst_and_gpr_to_produces_flags (MInstAndGpr.Both inst gpr))
+ (ProducesFlags.ProducesFlagsReturnsReg inst gpr))
+
+(decl minst_and_gpr_to_consumes_and_produces_flags (MInstAndGpr) ConsumesAndProducesFlags)
+(rule (minst_and_gpr_to_consumes_and_produces_flags (MInstAndGpr.Both inst gpr))
+ (ConsumesAndProducesFlags.ReturnsReg inst gpr))
+
+(decl minst_and_gpr_mem_to_consumes_flags (MInstAndGprMem) ConsumesFlags)
+(rule (minst_and_gpr_mem_to_consumes_flags (MInstAndGprMem.Mem inst))
+ (ConsumesFlags.ConsumesFlagsSideEffect inst))
+
+(decl minst_and_gpr_mem_to_produces_flags (MInstAndGprMem) ProducesFlags)
+(rule (minst_and_gpr_mem_to_produces_flags (MInstAndGprMem.Mem inst))
+ (ProducesFlags.ProducesFlagsSideEffect inst))
+
+(decl minst_and_gpr_mem_to_produces_flags_with_gpr (MInstAndGprMem) ProducesFlags)
+(rule (minst_and_gpr_mem_to_produces_flags_with_gpr (MInstAndGprMem.Gpr inst gpr))
+ (ProducesFlags.ProducesFlagsReturnsReg inst gpr))
+
+(decl minst_and_gpr_mem_to_consumes_and_produces_flags (MInstAndGprMem) ConsumesAndProducesFlags)
+(rule (minst_and_gpr_mem_to_consumes_and_produces_flags (MInstAndGprMem.Mem inst))
+ (ConsumesAndProducesFlags.SideEffect inst))
+
+(decl minst_and_gpr_mem_to_consumes_flags_with_gpr (MInstAndGprMem) ConsumesFlags)
+(rule (minst_and_gpr_mem_to_consumes_flags_with_gpr (MInstAndGprMem.Gpr inst gpr))
+ (ConsumesFlags.ConsumesFlagsReturnsReg inst gpr))
+
+(decl minst_and_gpr_mem_to_consumes_and_produces_flags_with_gpr (MInstAndGprMem) ConsumesAndProducesFlags)
+(rule (minst_and_gpr_mem_to_consumes_and_produces_flags_with_gpr (MInstAndGprMem.Gpr inst gpr))
+ (ConsumesAndProducesFlags.ReturnsReg inst gpr))
 
 ;; Helper for emitting `and` instructions.
 (decl x64_and (Type Gpr GprMemImm) Gpr)

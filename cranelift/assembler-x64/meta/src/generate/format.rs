@@ -19,6 +19,7 @@ impl dsl::Format {
             .operands
             .iter()
             .rev()
+            .filter(|o| o.location != dsl::Location::eflags)
             .map(|o| format!("{{{}}}", o.location))
             .collect();
         ordered_ops.join(", ")
@@ -84,7 +85,7 @@ impl dsl::Format {
             fmtln!(f, "let rex = {};", rex.generate_flags());
         }
 
-        match self.operands_by_kind().as_slice() {
+        match self.non_flags_operands_by_kind().as_slice() {
             [FixedReg(dst), Imm(_)] => {
                 // TODO: don't emit REX byte here.
                 fmtln!(f, "let {dst} = {};", dst.generate_fixed_reg().unwrap());
@@ -132,14 +133,14 @@ impl dsl::Format {
     fn generate_modrm_byte(&self, f: &mut Formatter, rex: &dsl::Rex) {
         use dsl::OperandKind::{FixedReg, Imm, Reg, RegMem};
 
-        if let [FixedReg(_), Imm(_)] = self.operands_by_kind().as_slice() {
+        if let [FixedReg(_), Imm(_)] = self.non_flags_operands_by_kind().as_slice() {
             // No need to emit a comment.
         } else {
             f.empty_line();
             f.comment("Emit ModR/M byte.");
         }
 
-        match self.operands_by_kind().as_slice() {
+        match self.non_flags_operands_by_kind().as_slice() {
             [FixedReg(_), Imm(_)] => {
                 // No need to emit a ModRM byte: we know the register used.
             }
@@ -182,18 +183,17 @@ impl dsl::Format {
 
     fn generate_immediate(&self, f: &mut Formatter) {
         use dsl::OperandKind::Imm;
-        match self.operands_by_kind().as_slice() {
-            [prefix @ .., Imm(imm)] => {
-                assert!(!prefix.iter().any(|o| matches!(o, Imm(_))));
+        let mut emitted = false;
 
-                f.empty_line();
-                f.comment("Emit immediate.");
-                fmtln!(f, "self.{imm}.encode(buf);");
-            }
-            unknown => {
-                // Do nothing: no immediates expected.
-                assert!(!unknown.iter().any(|o| matches!(o, Imm(_))));
-            }
+        for operand in self.operands.iter() {
+            let Imm(imm) = operand.location.kind() else {
+                continue;
+            };
+            assert!(!emitted);
+            emitted = true;
+            f.empty_line();
+            f.comment("Emit immediate.");
+            fmtln!(f, "self.{imm}.encode(buf);");
         }
     }
 }

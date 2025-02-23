@@ -1,7 +1,7 @@
 use super::{fmtln, generate_derive, generate_derive_arbitrary_bounds, Formatter};
 use crate::dsl;
 use crate::dsl::format::IsleConstructorRaw;
-use crate::dsl::OperandKind;
+use crate::dsl::{Location, OperandKind};
 
 impl dsl::Inst {
     /// `struct <inst> { <op>: Reg, <op>: Reg, ... }`
@@ -140,9 +140,9 @@ impl dsl::Inst {
         f.indent(|f| {
             for o in &self.format.operands {
                 match o.location.kind() {
-                    Imm(_) => {
-                        // Immediates do not need register allocation.
-                    }
+                    // Immediates/eflags do not need register allocation.
+                    Imm(_) | FixedReg(Location::eflags) => {}
+
                     FixedReg(_) => {
                         let call = o.mutability.generate_regalloc_call();
                         let ty = o.mutability.generate_type();
@@ -162,7 +162,8 @@ impl dsl::Inst {
                             fmtln!(f, "GprMem::Gpr(r) => visitor.{call}(r),");
                             fmtln!(
                                 f,
-                                "GprMem::Mem(m) => m.registers_mut().iter_mut().for_each(|r| visitor.read(r)),"
+                                "GprMem::Mem(m) => m.registers_mut().iter_mut()\
+                                    .for_each(|r| visitor.read(r)),"
                             );
                         });
                         fmtln!(f, "}}");
@@ -198,6 +199,9 @@ impl dsl::Inst {
             f.indent(|f| {
                 for op in &self.format.operands {
                     let location = op.location;
+                    if location == Location::eflags {
+                        continue;
+                    }
                     let to_string = location.generate_to_string(op.extension);
                     fmtln!(f, "let {location} = {to_string};");
                 }
@@ -245,7 +249,9 @@ impl dsl::Inst {
             .format
             .operands
             .iter()
-            .filter(|o| o.mutability.is_write())
+            // Ignore writes to eflags since that's handled in ISLE, not at this
+            // layer.
+            .filter(|o| o.mutability.is_write() && o.location != Location::eflags)
             .collect::<Vec<_>>();
         let rust_params = params
             .iter()
@@ -365,13 +371,46 @@ impl dsl::Inst {
             // conversion is here and use that to emit the rule down below.
             let (convert, extra_name) = match (raw, ctor) {
                 (MInst, RetSideEffectNoResult) => ("SideEffectNoResult.Inst", ""),
+
+                // Constructor when a `Gpr` is output, and an optional
+                // constructor to use when the instruction additionally produces
+                // flags.
                 (MInstAndGpr, RetGpr) => ("emit_minst_and_gpr", ""),
-                (MInstAndGprMem, RetSideEffectNoResult) => ("side_effect_minst_and_gpr_mem", "_mem"),
+                (MInstAndGpr, RetProducesFlagsWithGpr) => ("minst_and_gpr_to_produces_flags", "_flags"),
+
+                // Constructor when a `Gpr` is output and when the instruction
+                // both consumes and produces flags.
+                (MInstAndGpr, RetConsumesAndProducesFlagsWithGpr) => {
+                    ("minst_and_gpr_to_consumes_and_produces_flags", "_flags")
+                }
+                (MInstAndGpr, RetConsumesFlagsWithGpr) => ("minst_and_gpr_to_consumes_flags", ""),
+
+                // Default `GprMem` outputs when the instruction doesn't
+                // otherwise consume flags. The lower two are used when the
+                // instruction additionally produces flags.
                 (MInstAndGprMem, RetGpr) => ("emit_minst_and_gpr_mem", ""),
+                (MInstAndGprMem, RetSideEffectNoResult) => ("side_effect_minst_and_gpr_mem", "_mem"),
+                (MInstAndGprMem, RetProducesFlags) => ("minst_and_gpr_mem_to_produces_flags", "_mem_flags"),
+                (MInstAndGprMem, RetProducesFlagsWithGpr) => {
+                    ("minst_and_gpr_mem_to_produces_flags_with_gpr", "_flags")
+                }
+
+                // Used with `GprMem` output where the instruction both produces
+                // and consumes flags.
+                (MInstAndGprMem, RetConsumesFlagsWithGpr) => {
+                    ("minst_and_gpr_mem_to_consumes_flags_with_gpr", "")
+                }
+                (MInstAndGprMem, RetConsumesFlags) => ("minst_and_gpr_mem_to_consumes_flags", "_mem"),
+                (MInstAndGprMem, RetConsumesAndProducesFlagsWithGpr) => {
+                    ("minst_and_gpr_mem_to_consumes_and_produces_flags_with_gpr", "_flags")
+                }
+                (MInstAndGprMem, RetConsumesAndProducesFlags) => {
+                    ("minst_and_gpr_mem_to_consumes_and_produces_flags", "_mem_flags")
+                }
 
                 // Not possible to generate since it should be using one of the
                 // above variants instead.
-                (MInst, RetGpr) | (MInstAndGpr, RetSideEffectNoResult) => unreachable!(),
+                other => panic!("unimplemented convertion {other:?}"),
             };
             let rule_name = format!("x64_{struct_name}{extra_name}");
             f.line(format!("(decl {rule_name} ({param_tys}) {result_ty})"), None);

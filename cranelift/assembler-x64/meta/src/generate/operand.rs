@@ -25,6 +25,7 @@ impl dsl::Operand {
         use dsl::OperandKind::*;
         let pick_ty = match self.mutability {
             Read => read_ty,
+            Write => todo!(),
             ReadWrite => read_write_ty,
         };
         match self.location.kind() {
@@ -53,7 +54,7 @@ impl dsl::Location {
             None => String::new(),
         };
         match self {
-            al | ax | eax | rax | cl => None,
+            al | ax | eax | rax | cl | eflags => None,
             imm8 => Some("Imm8".into()),
             imm16 => Some("Imm16".into()),
             imm32 => Some("Imm32".into()),
@@ -72,6 +73,7 @@ impl dsl::Location {
             eax => "\"%eax\"".into(),
             rax => "\"%rax\"".into(),
             cl => "\"%cl\"".into(),
+            eflags => "\"%eflags\"".into(),
             imm8 | imm16 | imm32 => {
                 if extension.is_sign_extended() {
                     let variant = extension.generate_variant();
@@ -92,7 +94,7 @@ impl dsl::Location {
     pub fn generate_size(&self) -> Option<&str> {
         use dsl::Location::*;
         match self {
-            al | ax | eax | rax | cl | imm8 | imm16 | imm32 => None,
+            al | ax | eax | rax | cl | imm8 | imm16 | imm32 | eflags => None,
             r8 | rm8 => Some("Size::Byte"),
             r16 | rm16 => Some("Size::Word"),
             r32 | rm32 => Some("Size::Doubleword"),
@@ -107,7 +109,7 @@ impl dsl::Location {
         match self {
             al | ax | eax | rax => Some("reg::enc::RAX"),
             cl => Some("reg::enc::RCX"),
-            imm8 | imm16 | imm32 | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 => None,
+            imm8 | imm16 | imm32 | r8 | r16 | r32 | r64 | rm8 | rm16 | rm32 | rm64 | eflags => None,
         }
     }
 }
@@ -117,6 +119,7 @@ impl dsl::Mutability {
     pub fn generate_regalloc_call(&self) -> &str {
         match self {
             dsl::Mutability::Read => "read",
+            dsl::Mutability::Write => "write",
             dsl::Mutability::ReadWrite => "read_write",
         }
     }
@@ -125,6 +128,7 @@ impl dsl::Mutability {
     pub fn generate_type(&self) -> &str {
         match self {
             dsl::Mutability::Read => "Read",
+            dsl::Mutability::Write => "Write",
             dsl::Mutability::ReadWrite => "ReadWrite",
         }
     }
