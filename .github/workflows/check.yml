@@ -1,0 +1,22 @@
+name: CI
+on:
+  push:
+
+jobs:
+  what:
+    name: what
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - uses: ./.github/actions/install-rust
+    - run: cargo build --release --timings
+    - uses: actions/upload-artifact@v4
+      with:
+        name: timings-${{ matrix.os }}
+        path: target/cargo-timings
