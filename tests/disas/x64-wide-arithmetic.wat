@@ -170,11 +170,14 @@
 ;; wasm[0]::function[9]::add3_wide_u:
 ;;       pushq   %rbp
 ;;       movq    %rsp, %rbp
-;;       addq    %rcx, %rdx
+;;       movq    %rcx, %rsi
+;;       xorq    %rcx, %rcx
+;;       movq    %rsi, %rdi
+;;       addq    %rdi, %rdx
+;;       adcq    $0, %rcx
 ;;       movq    %rdx, %rax
-;;       adcq    %r8, %rax
-;;       seto    %r11b
-;;       movzbq  %r11b, %rcx
+;;       addq    %r8, %rax
+;;       adcq    $0, %rcx
 ;;       movq    %rbp, %rsp
 ;;       popq    %rbp
 ;;       retq

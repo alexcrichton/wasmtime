@@ -21,6 +21,24 @@
     local.get 0
     local.get 1
     i64.mul_wide_u)
+  (func (export "i64.add_wide_s") (param i64 i64) (result i64 i64)
+    local.get 0
+    local.get 1
+    i64.add_wide_s)
+  (func (export "i64.add_wide_u") (param i64 i64) (result i64 i64)
+    local.get 0
+    local.get 1
+    i64.add_wide_u)
+  (func (export "i64.add3_wide_s") (param i64 i64 i64) (result i64 i64)
+    local.get 0
+    local.get 1
+    local.get 2
+    i64.add3_wide_s)
+  (func (export "i64.add3_wide_u") (param i64 i64 i64) (result i64 i64)
+    local.get 0
+    local.get 1
+    local.get 2
+    i64.add3_wide_u)
 )
 
 ;; simple addition
@@ -74,6 +92,34 @@
                (i64.const -1) (i64.const -1))
 (assert_return (invoke "i64.mul_wide_u" (i64.const -1) (i64.const 1))
                (i64.const -1) (i64.const 0))
+
+;; simple add_wide
+(assert_return (invoke "i64.add_wide_s" (i64.const 0) (i64.const 0))
+               (i64.const 0) (i64.const 0))
+(assert_return (invoke "i64.add_wide_u" (i64.const 0) (i64.const 0))
+               (i64.const 0) (i64.const 0))
+(assert_return (invoke "i64.add_wide_s" (i64.const 1) (i64.const 2))
+               (i64.const 3) (i64.const 0))
+(assert_return (invoke "i64.add_wide_u" (i64.const 1) (i64.const 2))
+               (i64.const 3) (i64.const 0))
+(assert_return (invoke "i64.add_wide_s" (i64.const -1) (i64.const 2))
+               (i64.const 1) (i64.const 0))
+(assert_return (invoke "i64.add_wide_u" (i64.const -1) (i64.const 2))
+               (i64.const 1) (i64.const 1))
+(assert_return (invoke "i64.add_wide_s" (i64.const 0x7fffffff_ffffffff) (i64.const 2))
+               (i64.const 0x80000000_00000001) (i64.const 1))
+(assert_return (invoke "i64.add_wide_u" (i64.const 0x7fffffff_ffffffff) (i64.const 2))
+               (i64.const 0x80000000_00000001) (i64.const 0))
+
+;; simple add3_wide
+(assert_return (invoke "i64.add3_wide_u" (i64.const 0) (i64.const 0) (i64.const 0))
+               (i64.const 0) (i64.const 0))
+(assert_return (invoke "i64.add3_wide_u" (i64.const 1) (i64.const 2) (i64.const 0))
+               (i64.const 3) (i64.const 0))
+(assert_return (invoke "i64.add3_wide_u" (i64.const -1) (i64.const 2) (i64.const 0))
+               (i64.const 1) (i64.const 1))
+(assert_return (invoke "i64.add3_wide_u" (i64.const 0x7fffffff_ffffffff) (i64.const 2) (i64.const 0))
+               (i64.const 0x80000000_00000001) (i64.const 0))
 
 ;; 20 randomly generated test cases for i64.add128
 (assert_return (invoke "i64.add128"
