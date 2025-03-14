@@ -573,3 +573,10 @@ inherits = "release"
 codegen-units = 1
 lto = true
 
+
+[patch.crates-io]
+wasmparser = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'wide-arithmetic-ext' }
+wasmprinter = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'wide-arithmetic-ext' }
+wat = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'wide-arithmetic-ext' }
+wast = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'wide-arithmetic-ext' }
+wasm-encoder = { git = 'https://github.com/alexcrichton/wasm-tools', branch = 'wide-arithmetic-ext' }

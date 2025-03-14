@@ -111,6 +111,22 @@
         (let ((x_regs ValueRegs x))
           (iadd128 (value_regs_get_gpr x 0) (value_regs_get_gpr x 1)
                    y (RegMemImm.Imm 0))))
+(rule 4 (lower (has_type $I128 (iadd (iadd (uextend a) (uextend b)) (uextend c))))
+        (let (
+            (a Gpr (extend_to_gpr a $I64 (ExtendKind.Zero)))
+            (b Gpr (extend_to_gpr b $I64 (ExtendKind.Zero)))
+            (c Gpr (extend_to_gpr c $I64 (ExtendKind.Zero)))
+            (i0 ProducesFlags (x64_alurmi_with_flags_paired (AluRmiROpcode.Add) $I64 a b))
+            (i0_result Gpr (produces_flags_get_reg i0))
+            (i1 ConsumesAndProducesFlags (x64_alurmi_with_flags_chained (AluRmiROpcode.Adc) $I64 i0_result c))
+            (i2 ConsumesFlags (x64_setcc_paired (CC.O)))
+            (result MultiReg (with_flags_chained i0 i1 i2))
+          )
+          (multi_result_to_add3_result result)))
+
+(decl multi_result_to_add3_result (MultiReg) InstOutput)
+(rule (multi_result_to_add3_result (MultiReg.Three _add adc setb))
+  (value_regs adc (x64_movzx (ExtMode.BQ) setb)))
 
 ;; Helper for lowering 128-bit addition with the 64-bit halves of the lhs/rhs
 ;; already split. The first two arguments are lo/hi for the lhs and the second

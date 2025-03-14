@@ -2960,6 +2960,38 @@ pub fn translate_operator(
             let (res1, res2) = builder.ins().isplit(result);
             state.push2(res1, res2);
         }
+        Operator::I64AddWideS => {
+            let (arg1, arg2) = state.pop2();
+            let (result, carry) = builder.ins().sadd_overflow(arg1, arg2);
+            let carry = builder.ins().uextend(I64, carry);
+            state.push2(result, carry);
+        }
+        Operator::I64AddWideU => {
+            let (arg1, arg2) = state.pop2();
+            let (result, carry) = builder.ins().uadd_overflow(arg1, arg2);
+            let carry = builder.ins().uextend(I64, carry);
+            state.push2(result, carry);
+        }
+        Operator::I64Add3WideU => {
+            let (arg1, arg2, arg3) = state.pop3();
+            let arg1 = builder.ins().uextend(I128, arg1);
+            let arg2 = builder.ins().uextend(I128, arg2);
+            let arg3 = builder.ins().uextend(I128, arg3);
+            let t0 = builder.ins().iadd(arg1, arg2);
+            let result = builder.ins().iadd(t0, arg3);
+            let (res1, res2) = builder.ins().isplit(result);
+            state.push2(res1, res2);
+        }
+        Operator::I64Add3WideS => {
+            let (arg1, arg2, arg3) = state.pop3();
+            let arg1 = builder.ins().sextend(I128, arg1);
+            let arg2 = builder.ins().sextend(I128, arg2);
+            let arg3 = builder.ins().sextend(I128, arg3);
+            let t0 = builder.ins().iadd(arg1, arg2);
+            let result = builder.ins().iadd(t0, arg3);
+            let (res1, res2) = builder.ins().isplit(result);
+            state.push2(res1, res2);
+        }
 
         // catch-all as `Operator` is `#[non_exhaustive]`
         op => return Err(wasm_unsupported!("operator {op:?}")),

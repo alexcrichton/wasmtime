@@ -42,6 +42,28 @@
     local.set 0
     drop
     local.get 0)
+
+  (func $add_wide_s (param i64 i64) (result i64 i64)
+    local.get 0
+    local.get 1
+    i64.add_wide_s)
+
+  (func $add_wide_u (param i64 i64) (result i64 i64)
+    local.get 0
+    local.get 1
+    i64.add_wide_u)
+
+  (func $add3_wide_s (param i64 i64 i64) (result i64 i64)
+    local.get 0
+    local.get 1
+    local.get 2
+    i64.add3_wide_s)
+
+  (func $add3_wide_u (param i64 i64 i64) (result i64 i64)
+    local.get 0
+    local.get 1
+    local.get 2
+    i64.add3_wide_u)
 )
 
 ;; wasm[0]::function[0]::add128:
@@ -100,6 +122,59 @@
 ;;       movq    %rdx, %rax
 ;;       mulq    %rcx
 ;;       movq    %rdx, %rax
+;;       movq    %rbp, %rsp
+;;       popq    %rbp
+;;       retq
+;;
+;; wasm[0]::function[6]::add_wide_s:
+;;       pushq   %rbp
+;;       movq    %rsp, %rbp
+;;       movq    %rdx, %rax
+;;       addq    %rcx, %rax
+;;       seto    %r9b
+;;       movzbq  %r9b, %rcx
+;;       movq    %rbp, %rsp
+;;       popq    %rbp
+;;       retq
+;;
+;; wasm[0]::function[7]::add_wide_u:
+;;       pushq   %rbp
+;;       movq    %rsp, %rbp
+;;       movq    %rdx, %rax
+;;       addq    %rcx, %rax
+;;       setb    %r9b
+;;       movzbq  %r9b, %rcx
+;;       movq    %rbp, %rsp
+;;       popq    %rbp
+;;       retq
+;;
+;; wasm[0]::function[8]::add3_wide_s:
+;;       pushq   %rbp
+;;       movq    %rsp, %rbp
+;;       movq    %rdx, %r9
+;;       sarq    $0x3f, %r9
+;;       movq    %rcx, %rdi
+;;       sarq    $0x3f, %rdi
+;;       addq    %rcx, %rdx
+;;       movq    %r9, %rcx
+;;       adcq    %rdi, %rcx
+;;       movq    %r8, %rdi
+;;       sarq    $0x3f, %rdi
+;;       movq    %rdx, %rax
+;;       addq    %r8, %rax
+;;       adcq    %rdi, %rcx
+;;       movq    %rbp, %rsp
+;;       popq    %rbp
+;;       retq
+;;
+;; wasm[0]::function[9]::add3_wide_u:
+;;       pushq   %rbp
+;;       movq    %rsp, %rbp
+;;       addq    %rcx, %rdx
+;;       movq    %rdx, %rax
+;;       adcq    %r8, %rax
+;;       seto    %r11b
+;;       movzbq  %r11b, %rcx
 ;;       movq    %rbp, %rsp
 ;;       popq    %rbp
 ;;       retq
