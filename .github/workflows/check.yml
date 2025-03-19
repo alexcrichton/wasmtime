@@ -23,6 +23,7 @@ jobs:
           RUSTUP_HOME,{{ DEV_DRIVE }}/.rustup
           CARGO_TARGET_DIR,{{ DEV_DRIVE }}/target
         drive-type: Fixed
+        drive-size: 20GB
         trusted-dev-drive: true
     - uses: actions/checkout@v4
       with:
