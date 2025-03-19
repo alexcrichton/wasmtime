@@ -9,8 +9,9 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest, windows-latest]
         include:
+          - os: ubuntu-latest
+          - os: windows-latest
           - os: windows-latest
             dev_drive: true
     steps:
@@ -20,6 +21,9 @@ jobs:
         env-mapping: |
           CARGO_HOME,{{ DEV_DRIVE }}/.cargo
           RUSTUP_HOME,{{ DEV_DRIVE }}/.rustup
+          CARGO_TARGET_DIR,{{ DEV_DRIVE }}/target
+        drive-type: Fixed
+        trusted-dev-drive: true
     - uses: actions/checkout@v4
       with:
         submodules: true
