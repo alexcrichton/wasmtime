@@ -16,6 +16,7 @@ jobs:
         submodules: true
     - uses: ./.github/actions/install-rust
     - run: rustup target add x86_64-pc-windows-gnu
+    - run: cargo fetch
     - run: cargo build --release --timings --target x86_64-pc-windows-gnu
     - uses: actions/upload-artifact@v4
       with:
