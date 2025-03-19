@@ -12,7 +12,7 @@ jobs:
         include:
           - os: ubuntu-latest
           - os: windows-latest
-          - os: windows-latest
+          - os: windows-2025
             dev_drive: true
     steps:
     - uses: samypr100/setup-dev-drive@v3
