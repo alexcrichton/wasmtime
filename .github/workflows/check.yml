@@ -9,13 +9,13 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest]
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: true
     - uses: ./.github/actions/install-rust
-    - run: cargo build --release --timings
+    - run: cargo build --release --timings --target x86_64-pc-windows-gnu
     - uses: actions/upload-artifact@v4
       with:
         name: timings-${{ matrix.os }}
