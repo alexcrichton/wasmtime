@@ -10,7 +10,16 @@ jobs:
       fail-fast: true
       matrix:
         os: [ubuntu-latest, windows-latest]
+        include:
+          - os: windows-latest
+            dev_drive: true
     steps:
+    - uses: samypr100/setup-dev-drive@v3
+      if: matrix.dev_drive
+      with:
+        env-mapping: |
+          CARGO_HOME,{{ DEV_DRIVE }}/.cargo
+          RUSTUP_HOME,{{ DEV_DRIVE }}/.rustup
     - uses: actions/checkout@v4
       with:
         submodules: true
