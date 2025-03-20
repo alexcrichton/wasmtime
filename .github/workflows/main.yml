@@ -26,6 +26,9 @@ on:
     # uploads as well as publication to crates.io.
     - 'release-*'
 
+  # Allow manually triggering this request via a button or another workflow.
+  workflow_dispatch:
+
 defaults:
   run:
     shell: bash
@@ -1183,3 +1186,22 @@ jobs:
         }
         EOF
       if: steps.tag.outputs.push_tag == 'yes'
+
+  # TODO
+  file-issue-on-error:
+    runs-on: ubuntu-latest
+    needs: ci-status
+    if: |
+      always()
+      && needs.ci-status.result != 'success'
+      && github.event_name == 'workflow_dispatch'
+    steps:
+    - uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Failed CI build for ${context.ref}`,
+            body: `See https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+          })

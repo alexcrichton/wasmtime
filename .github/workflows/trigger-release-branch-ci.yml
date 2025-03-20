@@ -1,0 +1,29 @@
+name: "Trigger release branch CI"
+on:
+  schedule:
+    # “At 02:34 on Monday.”
+    #
+    # https://crontab.guru/#34_2_*_*_1
+    - cron: '34 2 * * 1'
+
+  # Allow manually triggering this request via a button
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  actions: write
+
+jobs:
+  run:
+    if: "github.repository == 'bytecodealliance/wasmtime' || !github.event.schedule"
+    name: Trigger release branch CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+      - run: rustc ci/trigger-release-branch-ci.rs
+      - run: ./trigger-release-branch-ci
+        env:
+          GH_TOKEN: ${{ github.token }}
