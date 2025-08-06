@@ -1111,10 +1111,24 @@ mod tests {
         Ok(())
     }
 
+    const PAGE_SIZE: usize = wasmtime_environ::Memory::DEFAULT_PAGE_SIZE as usize;
+
+    fn check_mem_grow_behavior(mut store: &mut Store<()>, mem: &Memory) -> Result<()> {
+        assert_eq!(mem.data(&store)[0], 0);
+        mem.data_mut(&mut store)[0] = 42;
+        assert_eq!(mem.data(&store)[0], 42);
+
+        assert_eq!(mem.grow(&mut store, 1)?, 1, "memory grows from 1 page to 2");
+        assert_eq!(mem.size(&store), 2, "memory now 2 pages");
+        assert_eq!(mem.data(&store)[PAGE_SIZE + 1], 0, "grown memory zeroed");
+        mem.data_mut(&mut store)[PAGE_SIZE + 1] = 24;
+        assert_eq!(mem.data(&store)[PAGE_SIZE + 1], 24, "grown memory mutated");
+
+        Ok(())
+    }
+
     #[test]
     fn memory_grow() -> Result<()> {
-        const PAGE_SIZE: usize = wasmtime_environ::Memory::DEFAULT_PAGE_SIZE as usize;
-
         let mut store = Store::<()>::default();
         let module = Module::new(
             store.engine(),
@@ -1127,14 +1141,7 @@ mod tests {
         let instance = Instance::new(&mut store, &module, &[])?;
         let m = instance.get_memory(&mut store, "m").unwrap();
 
-        assert_eq!(m.data(&store)[0], 0);
-        m.data_mut(&mut store)[0] = 42;
-        assert_eq!(m.data(&mut store)[0], 42);
-
-        assert_eq!(m.grow(&mut store, 1)?, 1, "memory grows from 1 page to 2");
-        assert_eq!(m.size(&mut store), 2, "memory now 2 pages");
-        m.data_mut(&mut store)[PAGE_SIZE] = 24;
-        assert_eq!(m.data(&mut store)[PAGE_SIZE], 24);
+        check_mem_grow_behavior(&mut store, &m)?;
 
         Ok(())
     }
@@ -1143,17 +1150,16 @@ mod tests {
     // the pagemap_scan instance reuse on Linux.
     #[test]
     fn memory_grow_pagemap() -> Result<()> {
-        const PAGE_SIZE: usize = wasmtime_environ::Memory::DEFAULT_PAGE_SIZE as usize;
-
         let mut config = Config::new();
         let mut pool = PoolingAllocationConfig::new();
+        pool.max_unused_warm_slots(100);
         pool.max_memory_size(PAGE_SIZE * 2);
         pool.linear_memory_keep_resident(PAGE_SIZE * 2);
+        pool.table_keep_resident(20000 * size_of::<*const ()>());
         config.allocation_strategy(pool);
-        config.memory_reservation((PAGE_SIZE * 3) as u64);
+        config.memory_reservation((PAGE_SIZE * 2) as u64);
 
         let engine = Engine::new(&config)?;
-        let mut store = Store::<()>::new(&engine, ());
         let module = Module::new(
             &engine,
             r#"
@@ -1162,18 +1168,28 @@ mod tests {
                 )
             "#,
         )?;
-        let instance = Instance::new(&mut store, &module, &[])?;
-        let m = instance.get_memory(&mut store, "m").unwrap();
 
-        assert_eq!(m.data(&store)[0], 0);
-        m.data_mut(&mut store)[0] = 42;
-        assert_eq!(m.data(&mut store)[0], 42);
+        {
+            let mut store = Store::<()>::new(&engine, ());
+            let instance = Instance::new(&mut store, &module, &[])?;
+            let m = instance.get_memory(&mut store, "m").unwrap();
 
-        assert_eq!(m.grow(&mut store, 1)?, 1, "memory grows from 1 page to 2");
-        assert_eq!(m.size(&mut store), 2, "memory now 2 pages");
-        assert_eq!(m.data(&mut store)[PAGE_SIZE], 0, "grown memory is zeroed");
-        m.data_mut(&mut store)[PAGE_SIZE] = 24;
-        assert_eq!(m.data(&mut store)[PAGE_SIZE], 24, "grown memory is mutated");
+            println!("first store mem: {:x?}", m.data(&store) as *const _);
+            check_mem_grow_behavior(&mut store, &m)?;
+            println!("first store after grow: {:x?}", m.data(&store) as *const _);
+        }
+
+        // Drop first store and create a new one, which should reuse the
+        // previous store's backing memory in the pool.
+        {
+            let mut store = Store::<()>::new(&engine, ());
+            let instance = Instance::new(&mut store, &module, &[])?;
+            let m = instance.get_memory(&mut store, "m").unwrap();
+
+            println!("second store mem: {:x?}", m.data(&store) as *const _);
+            check_mem_grow_behavior(&mut store, &m)?;
+            println!("second store after grow: {:x?}", m.data(&store) as *const _);
+        }
 
         Ok(())
     }
