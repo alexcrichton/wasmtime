@@ -1114,7 +1114,7 @@ mod tests {
     const PAGE_SIZE: usize = wasmtime_environ::Memory::DEFAULT_PAGE_SIZE as usize;
 
     fn check_mem_grow_behavior(mut store: &mut Store<()>, mem: &Memory) -> Result<()> {
-        assert_eq!(mem.data(&store)[0], 0);
+        assert_eq!(mem.data(&store)[0], 1, "data initializes location 0 to 1");
         mem.data_mut(&mut store)[0] = 42;
         assert_eq!(mem.data(&store)[0], 42);
 
@@ -1135,6 +1135,7 @@ mod tests {
             r#"
                 (module
                     (memory (export "m") 1 2)
+                    (data (i32.const 0) "\01")
                 )
             "#,
         )?;
@@ -1165,6 +1166,7 @@ mod tests {
             r#"
                 (module
                     (memory (export "m") 1 2)
+                    (data (i32.const 0) "\01")
                 )
             "#,
         )?;
