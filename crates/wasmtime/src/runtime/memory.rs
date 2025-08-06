@@ -1110,4 +1110,71 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn memory_grow() -> Result<()> {
+        const PAGE_SIZE: usize = wasmtime_environ::Memory::DEFAULT_PAGE_SIZE as usize;
+
+        let mut store = Store::<()>::default();
+        let module = Module::new(
+            store.engine(),
+            r#"
+                (module
+                    (memory (export "m") 1 2)
+                )
+            "#,
+        )?;
+        let instance = Instance::new(&mut store, &module, &[])?;
+        let m = instance.get_memory(&mut store, "m").unwrap();
+
+        assert_eq!(m.data(&store)[0], 0);
+        m.data_mut(&mut store)[0] = 42;
+        assert_eq!(m.data(&mut store)[0], 42);
+
+        assert_eq!(m.grow(&mut store, 1)?, 1, "memory grows from 1 page to 2");
+        assert_eq!(m.size(&mut store), 2, "memory now 2 pages");
+        m.data_mut(&mut store)[PAGE_SIZE] = 24;
+        assert_eq!(m.data(&mut store)[PAGE_SIZE], 24);
+
+        Ok(())
+    }
+
+    // Same test as memory_grow, except with pool settings that will activate
+    // the pagemap_scan instance reuse on Linux.
+    #[test]
+    fn memory_grow_pagemap() -> Result<()> {
+        const PAGE_SIZE: usize = wasmtime_environ::Memory::DEFAULT_PAGE_SIZE as usize;
+
+        let mut config = Config::new();
+        let mut pool = PoolingAllocationConfig::new();
+        pool.max_memory_size(PAGE_SIZE * 2);
+        pool.linear_memory_keep_resident(PAGE_SIZE * 2);
+        config.allocation_strategy(pool);
+        config.memory_reservation((PAGE_SIZE * 3) as u64);
+
+        let engine = Engine::new(&config)?;
+        let mut store = Store::<()>::new(&engine, ());
+        let module = Module::new(
+            &engine,
+            r#"
+                (module
+                    (memory (export "m") 1 2)
+                )
+            "#,
+        )?;
+        let instance = Instance::new(&mut store, &module, &[])?;
+        let m = instance.get_memory(&mut store, "m").unwrap();
+
+        assert_eq!(m.data(&store)[0], 0);
+        m.data_mut(&mut store)[0] = 42;
+        assert_eq!(m.data(&mut store)[0], 42);
+
+        assert_eq!(m.grow(&mut store, 1)?, 1, "memory grows from 1 page to 2");
+        assert_eq!(m.size(&mut store), 2, "memory now 2 pages");
+        assert_eq!(m.data(&mut store)[PAGE_SIZE], 0, "grown memory is zeroed");
+        m.data_mut(&mut store)[PAGE_SIZE] = 24;
+        assert_eq!(m.data(&mut store)[PAGE_SIZE], 24, "grown memory is mutated");
+
+        Ok(())
+    }
 }
