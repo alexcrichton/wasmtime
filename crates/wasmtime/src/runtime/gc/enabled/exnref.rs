@@ -438,75 +438,72 @@ impl ExnRef {
         &'a self,
         store: &'a mut StoreOpaque,
     ) -> Result<impl ExactSizeIterator<Item = Val> + 'a> {
-        assert!(self.comes_from_same_store(store));
+        // Resolve the field types and layout once up front, rather than
+        // re-deriving them from this exception's tag on every `next()`.
+        let field_tys = self.field_tys(store)?;
+        let layout = self.layout(store)?;
+        let exnref = self.exnref(store)?.unchecked_copy();
         let store = AutoAssertNoGc::new(store);
 
-        let gc_ref = self.inner.try_gc_ref(&store)?;
-        let header = store.require_gc_store()?.header(gc_ref)?;
-        debug_assert!(header.kind().matches(VMGcKind::ExnRef));
-
-        let index = header.ty().expect("exnrefs should have concrete types");
-        let ty = ExnType::from_shared_type_index(store.engine(), index);
-        let len = ty.fields().len();
-
         return Ok(Fields {
-            exnref: self,
+            exnref,
+            layout,
+            field_tys,
             store,
             index: 0,
-            len,
         });
 
-        struct Fields<'a, 'b> {
-            exnref: &'a ExnRef,
-            store: AutoAssertNoGc<'b>,
+        struct Fields<'a> {
+            exnref: VMExnRef,
+            layout: Arc<GcStructLayout>,
+            field_tys: Box<[ValType]>,
+            store: AutoAssertNoGc<'a>,
             index: usize,
-            len: usize,
         }
 
-        impl Iterator for Fields<'_, '_> {
+        impl Iterator for Fields<'_> {
             type Item = Val;
 
             #[inline]
             fn next(&mut self) -> Option<Self::Item> {
                 let i = self.index;
-                debug_assert!(i <= self.len);
-                if i >= self.len {
-                    return None;
-                }
+                let ty = self.field_tys.get(i)?;
                 self.index += 1;
-                self.exnref._field(&mut self.store, i).ok()
+                self.exnref
+                    .read_field(&mut self.store, &self.layout, &ty.clone().into(), i)
+                    .ok()
             }
 
             #[inline]
             fn size_hint(&self) -> (usize, Option<usize>) {
-                let len = self.len - self.index;
+                let len = self.len();
                 (len, Some(len))
             }
         }
 
-        impl ExactSizeIterator for Fields<'_, '_> {
+        impl ExactSizeIterator for Fields<'_> {
             #[inline]
             fn len(&self) -> usize {
-                self.len - self.index
+                self.field_tys.len() - self.index
             }
         }
     }
 
-    fn header<'a>(&self, store: &'a AutoAssertNoGc<'_>) -> Result<&'a VMGcHeader> {
-        assert!(self.comes_from_same_store(&store));
+    fn header<'a>(&self, store: &'a StoreOpaque) -> Result<&'a VMGcHeader> {
+        assert!(self.comes_from_same_store(store));
         let gc_ref = self.inner.try_gc_ref(store)?;
         Ok(store.require_gc_store()?.header(gc_ref)?)
     }
 
-    fn exnref<'a>(&self, store: &'a AutoAssertNoGc<'_>) -> Result<&'a VMExnRef> {
-        assert!(self.comes_from_same_store(&store));
+    fn exnref<'a>(&self, store: &'a StoreOpaque) -> Result<&'a VMExnRef> {
+        assert!(self.comes_from_same_store(store));
         let gc_ref = self.inner.try_gc_ref(store)?;
         debug_assert!(self.header(store)?.kind().matches(VMGcKind::ExnRef));
         Ok(gc_ref.as_exnref_unchecked())
     }
 
-    fn layout(&self, store: &AutoAssertNoGc<'_>) -> Result<Arc<GcStructLayout>> {
-        assert!(self.comes_from_same_store(&store));
+    fn layout(&self, store: &StoreOpaque) -> Result<Arc<GcStructLayout>> {
+        assert!(self.comes_from_same_store(store));
         let type_index = self.type_index(store)?;
         let layout = store
             .engine()
@@ -519,12 +516,19 @@ impl ExnRef {
         }
     }
 
-    fn field_ty(&self, store: &StoreOpaque, field: usize) -> Result<FieldType> {
-        let ty = self._ty(store)?;
-        match ty.field(field) {
+    /// Get the types of this exception object's payload values, as declared by
+    /// its tag.
+    fn field_tys(&self, store: &StoreOpaque) -> Result<Box<[ValType]>> {
+        let tag_ty = self.tag_(store)?._ty(store);
+        Ok(tag_ty.ty().params().collect())
+    }
+
+    fn field_ty(&self, store: &StoreOpaque, field: usize) -> Result<ValType> {
+        let tys = self.field_tys(store)?;
+        let len = tys.len();
+        match tys.into_vec().into_iter().nth(field) {
             Some(f) => Ok(f),
             None => {
-                let len = ty.fields().len();
                 bail!("cannot access field {field}: exn only has {len} fields")
             }
         }
