@@ -18,12 +18,6 @@ pub const ALIGN: u32 = 16;
 /// The offset of the length field in a `VMCopyingArrayHeader`.
 pub const ARRAY_LENGTH_OFFSET: u32 = HEADER_SIZE;
 
-/// The offset of the tag-instance-index field in an exception header.
-pub const EXCEPTION_TAG_INSTANCE_OFFSET: u32 = HEADER_SIZE;
-
-/// The offset of the tag-defined-index field in an exception header.
-pub const EXCEPTION_TAG_DEFINED_OFFSET: u32 = HEADER_SIZE + 4;
-
 /// The bit within a `VMCopyingHeader`'s reserved bits that represents whether,
 /// during a collection, the object has already been copied into the new
 /// semi-space.
@@ -163,14 +157,6 @@ impl GcTypeLayouts for CopyingTypeLayouts {
         ARRAY_LENGTH_OFFSET
     }
 
-    fn exception_tag_instance_offset(&self) -> u32 {
-        EXCEPTION_TAG_INSTANCE_OFFSET
-    }
-
-    fn exception_tag_defined_offset(&self) -> u32 {
-        EXCEPTION_TAG_DEFINED_OFFSET
-    }
-
     fn array_layout(&self, ty: &WasmArrayType) -> GcArrayLayout {
         let mut layout = common_array_layout(ty, HEADER_SIZE, ALIGN, ARRAY_LENGTH_OFFSET);
         debug_assert!(layout.align <= ALIGN);
@@ -186,15 +172,6 @@ impl GcTypeLayouts for CopyingTypeLayouts {
         if layout.size < MIN_OBJECT_SIZE {
             layout.size = MIN_OBJECT_SIZE;
         }
-        layout.size = layout.size.next_multiple_of(ALIGN);
-        debug_assert!(layout.align <= ALIGN);
-        layout.align = ALIGN;
-        debug_assert!(layout.size >= MIN_OBJECT_SIZE);
-        Ok(layout)
-    }
-
-    fn exn_layout(&self, ty: &WasmExnType) -> Result<GcStructLayout, OutOfMemory> {
-        let mut layout = common_exn_layout(ty, HEADER_SIZE, ALIGN)?;
         layout.size = layout.size.next_multiple_of(ALIGN);
         debug_assert!(layout.align <= ALIGN);
         layout.align = ALIGN;

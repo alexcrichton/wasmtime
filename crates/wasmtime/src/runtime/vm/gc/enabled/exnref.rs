@@ -2,10 +2,14 @@ use crate::{
     StorageType, Val,
     prelude::*,
     runtime::vm::{GcHeap, GcStore, VMGcRef},
-    store::{AutoAssertNoGc, InstanceId},
+    store::{AutoAssertNoGc, InstanceId, StoreOpaque},
 };
+use alloc::sync::Arc;
 use core::fmt;
-use wasmtime_environ::{DefinedTagIndex, GcStructLayout, VMGcKind};
+use wasmtime_environ::{
+    DefinedTagIndex, EXN_ENGINE_FIELDS, EXN_TAG_DEFINED_FIELD, EXN_TAG_INSTANCE_FIELD, GcLayout,
+    GcStructLayout, VMGcKind,
+};
 
 /// A `VMGcRef` that we know points to an `exn`.
 ///
@@ -133,7 +137,10 @@ impl VMExnRef {
         Self(self.0.unchecked_copy())
     }
 
-    /// Read a field of the given `StorageType` into a `Val`.
+    /// Read a payload field of the given `StorageType` into a `Val`.
+    ///
+    /// `field` indexes the exception's payload values, skipping past the
+    /// leading engine-managed fields of the layout.
     ///
     /// `i8` and `i16` fields are zero-extended into `Val::I32(_)`s.
     ///
@@ -149,11 +156,15 @@ impl VMExnRef {
         ty: &StorageType,
         field: usize,
     ) -> Result<Val> {
-        let offset = layout.fields[field].offset;
+        let offset = layout.fields[field + EXN_ENGINE_FIELDS].offset;
         self.as_gc_ref().read_val(store, ty, offset)
     }
 
-    /// Initialize a field in this exnref that is currently uninitialized.
+    /// Initialize a payload field in this exnref that is currently
+    /// uninitialized.
+    ///
+    /// `field` indexes the exception's payload values, skipping past the
+    /// leading engine-managed fields of the layout.
     ///
     /// Calling this method on an exnref that has already had the
     /// associated field initialized will result in GC bugs. These are
@@ -178,42 +189,60 @@ impl VMExnRef {
         val: Val,
     ) -> Result<()> {
         debug_assert!(val._matches_ty(&store, &ty.unpack())?);
-        let offset = layout.fields[field].offset;
+        let offset = layout.fields[field + EXN_ENGINE_FIELDS].offset;
         self.as_gc_ref().initialize_val(store, ty, offset, val)
     }
 
     /// Initialize the tag referenced by this exception object.
+    ///
+    /// The tag lives in the leading engine-managed fields of the exception
+    /// object's layout; see [`EXN_TAG_INSTANCE_FIELD`].
     pub fn initialize_tag(
         &self,
         store: &mut AutoAssertNoGc,
+        layout: &GcStructLayout,
         instance: InstanceId,
         tag: DefinedTagIndex,
     ) -> Result<()> {
-        let layouts = store.engine().gc_runtime().unwrap().layouts();
-        let instance_offset = layouts.exception_tag_instance_offset();
-        let tag_offset = layouts.exception_tag_defined_offset();
+        let instance_offset = layout.fields[EXN_TAG_INSTANCE_FIELD].offset;
+        let tag_offset = layout.fields[EXN_TAG_DEFINED_FIELD].offset;
         let store = store.require_gc_store_mut()?;
         store
-            .gc_object_data(&self.0)?
+            .gc_object_data_mut(&self.0)?
             .write_u32(instance_offset, instance.as_u32())?;
         store
-            .gc_object_data(&self.0)?
+            .gc_object_data_mut(&self.0)?
             .write_u32(tag_offset, tag.as_u32())?;
         Ok(())
     }
 
+    /// Get the layout of this exception object.
+    pub fn layout(&self, store: &StoreOpaque) -> Result<Arc<GcStructLayout>> {
+        let header = store.require_gc_store()?.header(&self.0)?;
+        debug_assert!(header.kind().matches(VMGcKind::ExnRef));
+        let ty = header.ty().expect("exnrefs should have concrete types");
+        match store
+            .engine()
+            .signatures()
+            .layout(ty)
+            .expect("exn types should have GC layouts")
+        {
+            GcLayout::Struct(s) => Ok(s),
+            GcLayout::Array(_) => unreachable!("exn layouts are struct layouts"),
+        }
+    }
+
     /// Get the tag referenced by this exception object.
-    pub fn tag(&self, store: &mut AutoAssertNoGc) -> Result<(InstanceId, DefinedTagIndex)> {
-        let layouts = store.engine().gc_runtime().unwrap().layouts();
-        let instance_offset = layouts.exception_tag_instance_offset();
-        let tag_offset = layouts.exception_tag_defined_offset();
-        let instance = store
-            .require_gc_store_mut()?
+    pub fn tag(&self, store: &StoreOpaque) -> Result<(InstanceId, DefinedTagIndex)> {
+        let layout = self.layout(store)?;
+        let instance_offset = layout.fields[EXN_TAG_INSTANCE_FIELD].offset;
+        let tag_offset = layout.fields[EXN_TAG_DEFINED_FIELD].offset;
+        let gc_store = store.require_gc_store()?;
+        let instance = gc_store
             .gc_object_data(&self.0)?
             .read_u32(instance_offset)?;
         let instance = InstanceId::from_u32(instance);
-        let store = store.require_gc_store_mut()?;
-        let tag = store.gc_object_data(&self.0)?.read_u32(tag_offset)?;
+        let tag = gc_store.gc_object_data(&self.0)?.read_u32(tag_offset)?;
         let tag = DefinedTagIndex::from_u32(tag);
         Ok((instance, tag))
     }

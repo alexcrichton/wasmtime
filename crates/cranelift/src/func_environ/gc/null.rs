@@ -10,7 +10,6 @@ use crate::trap::TranslateTrap;
 use cranelift_codegen::ir::{self, InstBuilder};
 use cranelift_frontend::FunctionBuilder;
 use wasmtime_environ::VMSharedTypeIndex;
-use wasmtime_environ::null::{EXCEPTION_TAG_DEFINED_OFFSET, EXCEPTION_TAG_INSTANCE_OFFSET};
 use wasmtime_environ::{
     GcTypeLayouts, ModuleInternedTypeIndex, TypeIndex, VMGcKind, WasmRefType, WasmResult,
     null::NullTypeLayouts,
@@ -287,14 +286,16 @@ impl GcCompiler for NullCompiler {
         instance_id: ir::Value,
         tag: ir::Value,
     ) -> WasmResult<ir::Value> {
-        let interned_type_index = func_env.module.tags[tag_index]
-            .exception
-            .unwrap_module_type_index();
+        let interned_type_index = func_env.translation.tag_layouts[tag_index];
         let exn_layout = func_env.struct_or_exn_layout(interned_type_index);
 
         // Copy some stuff out of the exception layout to avoid borrowing issues.
         let exn_size = exn_layout.size;
         let exn_align = exn_layout.align;
+
+        // The exception object's fields are the engine-managed tag reference
+        // followed by the exception's payload values.
+        let field_vals = exn_field_vals(instance_id, tag, field_vals);
 
         assert_eq!(VMGcKind::MASK & exn_size, 0);
         assert_eq!(VMGcKind::UNUSED_MASK & exn_size, exn_size);
@@ -321,29 +322,7 @@ impl GcCompiler for NullCompiler {
             builder,
             interned_type_index,
             raw_exn_pointer,
-            field_vals,
-        )?;
-
-        // Initialize the tag fields.
-        let instance_id_addr = builder
-            .ins()
-            .iadd_imm_s(raw_exn_pointer, i64::from(EXCEPTION_TAG_INSTANCE_OFFSET));
-        write_field_at_addr(
-            func_env,
-            builder,
-            WasmStorageType::Val(WasmValType::I32),
-            instance_id_addr,
-            instance_id,
-        )?;
-        let tag_addr = builder
-            .ins()
-            .iadd_imm_s(raw_exn_pointer, i64::from(EXCEPTION_TAG_DEFINED_OFFSET));
-        write_field_at_addr(
-            func_env,
-            builder,
-            WasmStorageType::Val(WasmValType::I32),
-            tag_addr,
-            tag,
+            &field_vals,
         )?;
 
         Ok(exn_ref)
