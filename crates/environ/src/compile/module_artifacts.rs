@@ -186,7 +186,7 @@ impl<'a> ObjectBuilder<'a> {
 
         Ok(CompiledModuleInfo {
             module,
-            func_names,
+            func_names: func_names.into(),
             meta: Metadata {
                 has_unparsed_debuginfo,
                 code_section_offset: debuginfo.wasm_file.code_section_offset,

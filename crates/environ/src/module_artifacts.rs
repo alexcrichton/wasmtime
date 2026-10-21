@@ -595,7 +595,7 @@ pub struct CompiledModuleInfo {
     pub meta: Metadata,
 
     /// Sorted list, by function index, of names we have for this module.
-    pub func_names: Vec<FunctionName>,
+    pub func_names: TryVec<FunctionName>,
 
     /// Checksum of the source Wasm binary from which this module was compiled.
     pub checksum: WasmChecksum,

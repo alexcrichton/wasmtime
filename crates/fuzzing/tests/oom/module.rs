@@ -23,7 +23,7 @@ fn module_deserialize() -> Result<()> {
                     (elem (i32.const 0) func 1)
                     (elem func 1)
 
-                    (func (export "func") (param i32) (result i32)
+                    (func $f (export "func") (param i32) (result i32)
                         (call 0 (local.get 0))
                     )
                 )
