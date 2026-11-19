@@ -37,6 +37,19 @@ const KNOWN_ADAPTER_FAILURES: &[&str] = &[
     "environ_get-multiple-variables",
 ];
 
+const KNOWN_WINDOWS_FAILURES: &[&str] = &[
+    // These tests create a `parent.cleanup` symlink to `..` and expect paths
+    // which traverse through it to fail with `not-permitted`. The target of
+    // the symlink can't be inspected from within the preopen, however, so on
+    // Windows it's created as a file symlink and traversing through it fails
+    // with `not-directory` instead.
+    "filesystem-hard-links",
+    "filesystem-mkdir-rmdir",
+    "filesystem-rename",
+    "filesystem-stat",
+    "filesystem-unlink-errors",
+];
+
 fn main() -> Result<()> {
     env_logger::init();
 
@@ -65,6 +78,7 @@ fn find_tests(path: &Path, adapted_dir: &Arc<TempDir>, trials: &mut Vec<Trial>) 
 
         // Test the wasm itself.
         let should_fail = KNOWN_FAILURES.contains(&test_name.as_str())
+            || (cfg!(windows) && KNOWN_WINDOWS_FAILURES.contains(&test_name.as_str()))
             || (path.iter().any(|p| p == "wasm32-wasip3")
                 && !cfg!(feature = "component-model-async"));
         trials.push(Trial::test(
