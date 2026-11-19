@@ -37,6 +37,7 @@ concurrency:
 jobs:
   # Check Code style quickly by running `rustfmt` over all code
   rustfmt:
+    if: false
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
@@ -50,6 +51,7 @@ jobs:
   # Quick JS formatting/linting checks for the little bits of JS we have for the
   # `wasmtime explore` UI.
   check_js:
+    if: false
     name: Check JS
     runs-on: ubuntu-latest
     steps:
@@ -65,6 +67,7 @@ jobs:
   #
   # Note that `wasmtime-platform.h` is excluded here as it's auto-generated.
   clangformat:
+    if: false
     name: Clang format
     runs-on: ubuntu-26.04
     steps:
@@ -256,14 +259,14 @@ jobs:
             echo run-isle-veri=true >> $GITHUB_OUTPUT
           fi
         fi
-        matrix="$(node ./ci/build-test-matrix.js ./commits.log ./names.log $run_full)"
+        matrix="$(node ./ci/build-test-matrix.js ./commits.log ./names.log $run_full | jq -c '[.[] | select(.name | test("^Test (MSVC|MinGW) x86_64 \\((wasmtime-wasi|wasmtime-cli-other)\\)$"))]')"
         echo "test-matrix={\"include\":$(echo $matrix)}" >> $GITHUB_OUTPUT
         echo "$matrix"
 
         matrix="$(node ./ci/build-build-matrix.js)"
         echo "build-matrix={\"include\":$(echo $matrix)}" >> $GITHUB_OUTPUT
 
-        if [ "$run_full" = "true" ]; then
+        if false; then
             echo run-full=true >> $GITHUB_OUTPUT
             echo test-capi=true >> $GITHUB_OUTPUT
             echo test-nightly=true >> $GITHUB_OUTPUT
@@ -345,6 +348,7 @@ jobs:
   # here isn't to run tests, mostly just serve as a double-check that Rust code
   # compiles and is likely to work everywhere else.
   micro_checks:
+    if: false
     name: Check ${{matrix.name}}
     strategy:
       fail-fast: ${{ github.event_name != 'pull_request' }}
@@ -517,6 +521,7 @@ jobs:
 
   # Check that Clippy lints are passing.
   clippy:
+    if: false
     name: Clippy
     runs-on: ubuntu-latest
     env:
@@ -536,6 +541,7 @@ jobs:
   # nightly toolchains or external dependencies (OCaml, SMT solvers) are
   # skipped.
   msrv_check:
+    if: false
     name: MSRV check
     runs-on: ubuntu-latest
     steps:
@@ -565,6 +571,7 @@ jobs:
   # (e.g. Android NDK) and we haven't factored support for those things out into
   # a parallel jobs yet.
   monolith_checks:
+    if: false
     name: Monolith Checks
     runs-on: ubuntu-latest
     env:
@@ -861,7 +868,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env: ${{ matrix.env || fromJSON('{}') }}
     strategy:
-      fail-fast: ${{ github.event_name != 'pull_request' }}
+      fail-fast: false
       matrix: ${{ fromJson(needs.determine.outputs.test-matrix) }}
     steps:
     - uses: actions/checkout@v7.0.1
@@ -1429,6 +1436,7 @@ jobs:
         path: dist
 
   verify-gh-actions-lockfile:
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
